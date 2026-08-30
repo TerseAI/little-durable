@@ -5,6 +5,12 @@ export class RuntimeEventStream extends ReadableStream<RuntimeEvent> {
     async waitForOutcome(): Promise<RuntimeOutcome> {
         for await (const event of this) {
             if (event.type === "runtime.completed") return { status: "completed" }
+            if (event.type === "runtime.failed") {
+                return {
+                    status: "failed",
+                    error: event.error
+                }
+            }
             if (event.type === "runtime.suspended") {
                 return {
                     status: "suspended",

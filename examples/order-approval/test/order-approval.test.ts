@@ -3,10 +3,13 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
+import { setTimeout as delay } from "node:timers/promises"
 
 import { FileJournalStore, Runtime } from "little-durable"
+import type { WorkflowDefinition } from "little-durable"
 import { z } from "zod"
 
+import { createDelayedOrderFollowUpWorkflow } from "../src/workflows/delayed-order-follow-up.js"
 import { OrderApprovalHook, createOrderApprovalWorkflow } from "../src/workflows/order-approval.js"
 
 test("suspends for approval, resumes, and reuses the completed preparation step", async t => {
@@ -82,6 +85,64 @@ test("suspends for approval, resumes, and reuses the completed preparation step"
     assert.equal((await journalStore.list({ runId })).length, eventCount)
 })
 
+test("resolves a sleeping workflow by name and resumes its timer", async t => {
+    const directory = await mkdtemp(join(tmpdir(), "little-durable-delayed-follow-up-"))
+    t.after(async () => rm(directory, { recursive: true, force: true }))
+
+    const journalStore = new FileJournalStore(join(directory, "journals"))
+    const workflow = createDelayedOrderFollowUpWorkflow({ resultDirectory: join(directory, "results") })
+    const workflowsByName = new Map<string, WorkflowDefinition>([[workflow.name, workflow]])
+    const runtime = new Runtime({ journalStore })
+    const runId = "follow-up-1001"
+    const startEvents = []
+
+    for await (const event of runtime.start(workflow, {
+        runId,
+        input: {
+            orderId: runId,
+            customerEmail: "ada@example.com",
+            delayMs: 20
+        }
+    })) {
+        startEvents.push(event)
+    }
+
+    assert.deepEqual(
+        startEvents.map(event => event.type),
+        ["runtime.started", "step.started", "step.completed", "hook.requested", "runtime.suspended"]
+    )
+
+    const suspendedEvent = startEvents.at(-1)
+    if (suspendedEvent?.type !== "runtime.suspended") throw new Error("Expected the workflow to suspend")
+    assert.equal(suspendedEvent.suspension.request.name, "timer")
+
+    const run = await runtime.getRun({ runId })
+    const resolvedWorkflow = workflowsByName.get(run.workflowName)
+    if (!resolvedWorkflow) throw new Error(`Workflow "${run.workflowName}" is not registered`)
+
+    await delay(35)
+
+    const resumedEvents = []
+    for await (const event of runtime.resumeTimer(resolvedWorkflow, {
+        runId,
+        waitId: suspendedEvent.suspension.waitId
+    })) {
+        resumedEvents.push(event)
+    }
+
+    assert.deepEqual(
+        resumedEvents.map(event => event.type),
+        ["hook.resolved", "runtime.resumed", "step.started", "step.completed", "runtime.completed"]
+    )
+
+    const result = DelayedFollowUpResultSchema.parse(JSON.parse(await readFile(join(directory, "results", `${runId}.json`), "utf8")) as unknown)
+    assert.deepEqual(result, {
+        orderId: runId,
+        customerEmail: "ada@example.com",
+        status: "follow-up-sent"
+    })
+})
+
 const OrderResultSchema = z
     .object({
         orderId: z.string(),
@@ -89,5 +150,13 @@ const OrderResultSchema = z
         summary: z.string(),
         status: z.enum(["approved", "rejected"]),
         decidedBy: z.string()
+    })
+    .strict()
+
+const DelayedFollowUpResultSchema = z
+    .object({
+        orderId: z.string(),
+        customerEmail: z.string().email(),
+        status: z.literal("follow-up-sent")
     })
     .strict()

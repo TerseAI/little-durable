@@ -118,23 +118,28 @@ test("waitFor suspends a workflow and returns its validated resolution", async (
     })
 })
 
-test("waitFor rejects an invalid request before journaling it", async ({ journalDirectory }) => {
+test("waitFor returns a failed outcome for an invalid request before journaling it", async ({ journalDirectory }) => {
     const ApprovalHook = createApprovalHook()
     const journalStore = new FileJournalStore(journalDirectory)
     const invalidRequest = {
         message: 123
     } as unknown as ApprovalRequest
 
-    await expect(
-        new Runtime({ journalStore })
-            .start(
-                defineInputlessWorkflow(async () => {
-                    await waitFor(ApprovalHook, invalidRequest)
-                }),
-                { runId: "run-123", input: null }
-            )
-            .waitForOutcome()
-    ).rejects.toBeInstanceOf(z.ZodError)
+    const outcome = await new Runtime({ journalStore })
+        .start(
+            defineInputlessWorkflow(async () => {
+                await waitFor(ApprovalHook, invalidRequest)
+            }),
+            { runId: "run-123", input: null }
+        )
+        .waitForOutcome()
+
+    expect(outcome).toMatchObject({
+        status: "failed",
+        error: {
+            name: "ZodError"
+        }
+    })
 
     expect(await journalStore.listByType({ runId: "run-123", eventType: "wait.requested" })).toHaveLength(0)
 })

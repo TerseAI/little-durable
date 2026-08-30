@@ -127,14 +127,20 @@ test("resuming an interrupted step does not record another step started event", 
         })
     })
 
-    await expect(
-        new Runtime({ journalStore: interruptedJournalStore })
-            .start(workflow, {
-                runId: "run-123",
-                input: null
-            })
-            .waitForOutcome()
-    ).rejects.toBe(interruptedError)
+    const failedOutcome = await new Runtime({ journalStore: interruptedJournalStore })
+        .start(workflow, {
+            runId: "run-123",
+            input: null
+        })
+        .waitForOutcome()
+
+    expect(failedOutcome).toEqual({
+        status: "failed",
+        error: {
+            name: "Error",
+            message: interruptedError.message
+        }
+    })
 
     expect(await fileJournalStore.listByType({ runId: "run-123", eventType: "step.started" })).toHaveLength(1)
     expect(await fileJournalStore.listByType({ runId: "run-123", eventType: "step.completed" })).toHaveLength(0)
@@ -235,27 +241,33 @@ test("runs a step that throws and records the error", async ({ journalDirectory 
     const runtime = new Runtime({ journalStore })
     const stepError = new Error("test error")
 
-    await expect(
-        runtime
-            .start(
-                defineInputlessWorkflow(async () => {
-                    await step({
-                        name: "create-greeting",
-                        input: {
-                            person: "Ada"
-                        },
-                        run: async () => {
-                            throw stepError
-                        }
-                    })
-                }),
-                {
-                    runId: "run-123",
-                    input: null
-                }
-            )
-            .waitForOutcome()
-    ).rejects.toBe(stepError)
+    const failedOutcome = await runtime
+        .start(
+            defineInputlessWorkflow(async () => {
+                await step({
+                    name: "create-greeting",
+                    input: {
+                        person: "Ada"
+                    },
+                    run: async () => {
+                        throw stepError
+                    }
+                })
+            }),
+            {
+                runId: "run-123",
+                input: null
+            }
+        )
+        .waitForOutcome()
+
+    expect(failedOutcome).toEqual({
+        status: "failed",
+        error: {
+            name: "Error",
+            message: stepError.message
+        }
+    })
 
     const startedEvents = await journalStore.listByType({
         runId: "run-123",

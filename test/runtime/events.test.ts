@@ -20,6 +20,57 @@ test("waits for the runtime outcome without manually consuming events", async ({
     expect(outcome).toEqual({ status: "completed" })
 })
 
+test("returns a failed outcome when the workflow throws", async ({ journalDirectory }) => {
+    const workflowError = new Error("Workflow failed")
+    const outcome = await new Runtime({ journalStore: new FileJournalStore(journalDirectory) })
+        .start(
+            defineInputlessWorkflow(async () => {
+                throw workflowError
+            }),
+            {
+                runId: "run-123",
+                input: null
+            }
+        )
+        .waitForOutcome()
+
+    expect(outcome).toEqual({
+        status: "failed",
+        error: {
+            name: "Error",
+            message: "Workflow failed"
+        }
+    })
+})
+
+test("streams a terminal failure event when the workflow throws", async ({ journalDirectory }) => {
+    const events = []
+
+    for await (const event of new Runtime({ journalStore: new FileJournalStore(journalDirectory) }).start(
+        defineInputlessWorkflow(async () => {
+            throw new Error("Workflow failed")
+        }),
+        {
+            runId: "run-123",
+            input: null
+        }
+    )) {
+        events.push(event)
+    }
+
+    expect(events.map(event => event.type)).toEqual(["runtime.started", "runtime.failed"])
+    expect(events.at(-1)).toMatchObject({
+        type: "runtime.failed",
+        runId: "run-123",
+        failedAt: expect.any(String),
+        durationMs: expect.any(Number),
+        error: {
+            name: "Error",
+            message: "Workflow failed"
+        }
+    })
+})
+
 test("streams step lifecycle events and a terminal completion event", async ({ journalDirectory }) => {
     const workflow = defineInputlessWorkflow(async () => {
         await step({

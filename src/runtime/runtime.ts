@@ -7,7 +7,7 @@ import type { RunCompletedEvent } from "../types/runCompletedEvent.js"
 import { createRunEventId } from "../types/runEventId.js"
 import type { RunMetadata } from "../types/runMetadata.js"
 import type { RunStartedEvent } from "../types/runStartedEvent.js"
-import type { RuntimeCompletedOutcome, RuntimeOutcome, RuntimeSuspendedOutcome, Suspension } from "../types/runtimeOutcome.js"
+import type { RuntimeCompletedOutcome, RuntimeError, RuntimeFailedOutcome, RuntimeOutcome, RuntimeSuspendedOutcome, Suspension } from "../types/runtimeOutcome.js"
 import { createWaitEventId } from "../types/waitEventId.js"
 import type { WaitRequestedEvent } from "../types/waitRequestedEvent.js"
 import type { WaitResolvedEvent } from "../types/waitResolvedEvent.js"
@@ -286,13 +286,30 @@ export class Runtime {
             status: "completed"
         }))
 
-        const outcome = await Promise.race([
-            workflowCompletion,
-            suspensionSignal.promise.then((suspension): RuntimeSuspendedOutcome => ({
-                status: "suspended",
-                suspension
-            }))
-        ])
+        let outcome: RuntimeOutcome
+        try {
+            outcome = await Promise.race([
+                workflowCompletion,
+                suspensionSignal.promise.then((suspension): RuntimeSuspendedOutcome => ({
+                    status: "suspended",
+                    suspension
+                }))
+            ])
+        } catch (error) {
+            const failedAt = systemNow()
+            const runtimeError = toRuntimeError(error)
+            const failedOutcome: RuntimeFailedOutcome = {
+                status: "failed",
+                error: runtimeError
+            }
+
+            await execution.runtimeEvents.fail({
+                failedAt: toIsoString(failedAt),
+                error: runtimeError
+            })
+
+            return failedOutcome
+        }
 
         if (outcome.status === "suspended") {
             execution.runtimeEvents.suspend(outcome.suspension)
@@ -334,7 +351,7 @@ export class Runtime {
 
         void execute(execution).then(
             () => execution.runtimeEvents.close(),
-            error => execution.runtimeEvents.fail(error)
+            error => execution.runtimeEvents.error(error)
         )
 
         return execution.runtimeEvents.stream
@@ -349,6 +366,10 @@ function getTimerWakeAt(request: WaitRequestedEvent["request"]): number | undefi
     if (!Number.isFinite(wakeAt)) throw new Error("Timer wait request has an invalid wakeAt")
 
     return wakeAt
+}
+
+function toRuntimeError(error: unknown): RuntimeError {
+    return error instanceof Error ? { name: error.name, message: error.message } : { name: "Error", message: String(error) }
 }
 
 function createLogicalClock(initialTimestamp: number): LogicalClock {

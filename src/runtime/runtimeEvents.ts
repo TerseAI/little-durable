@@ -4,6 +4,7 @@ import type { JournalEvent } from "../types/journalEvent.js"
 import type { JournalStore } from "../types/journalStore.js"
 import { RuntimeEventSchema } from "../types/runtimeEvent.js"
 import type { RuntimeEvent } from "../types/runtimeEvent.js"
+import type { RuntimeError } from "../types/runtimeOutcome.js"
 import type { Suspension } from "../types/runtimeOutcome.js"
 import { createRunEventId } from "../types/runEventId.js"
 import { createStepEventId } from "../types/stepEventId.js"
@@ -61,13 +62,25 @@ export class RuntimeEvents {
         )
     }
 
+    async fail({ error, failedAt }: RuntimeFailure): Promise<void> {
+        this.emit(
+            RuntimeEventSchema.parse({
+                type: "runtime.failed",
+                runId: this.context.runId,
+                failedAt,
+                durationMs: Date.parse(failedAt) - (await getRuntimeStartedAt(this.context)),
+                error
+            })
+        )
+    }
+
     close(): void {
         if (this.closed) return
         this.closed = true
         this.controller.close()
     }
 
-    fail(error: unknown): void {
+    error(error: unknown): void {
         if (this.closed) return
         this.closed = true
         this.controller.error(error)
@@ -204,6 +217,11 @@ async function getHookRequest(waitId: string, context: RuntimeEventContext): Pro
 type RuntimeEventsOptions = {
     readonly runId: string
     readonly journalStore: JournalStore
+}
+
+type RuntimeFailure = {
+    readonly error: RuntimeError
+    readonly failedAt: string
 }
 
 type RuntimeEventContext = {

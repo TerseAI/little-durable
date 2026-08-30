@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { SuspensionSchema } from "./runtimeOutcome.js"
+import { RuntimeErrorSchema, SuspensionSchema } from "./runtimeOutcome.js"
 
 export const RuntimeEventSchema = z.discriminatedUnion("type", [
     z
@@ -79,6 +79,15 @@ export const RuntimeEventSchema = z.discriminatedUnion("type", [
             type: z.literal("runtime.suspended"),
             runId: z.string(),
             suspension: SuspensionSchema
+        })
+        .strict(),
+    z
+        .object({
+            type: z.literal("runtime.failed"),
+            runId: z.string(),
+            failedAt: z.iso.datetime(),
+            durationMs: z.number().nonnegative(),
+            error: RuntimeErrorSchema
         })
         .strict(),
     z

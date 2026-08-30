@@ -50,14 +50,20 @@ test("step randomness remains native when a step is retried", async ({ journalDi
     })
     const journalStore = new FileJournalStore(journalDirectory)
 
-    await expect(
-        new Runtime({ journalStore })
-            .start(workflow, {
-                runId: "run-123",
-                input: null
-            })
-            .waitForOutcome()
-    ).rejects.toBe(stepError)
+    const failedOutcome = await new Runtime({ journalStore })
+        .start(workflow, {
+            runId: "run-123",
+            input: null
+        })
+        .waitForOutcome()
+
+    expect(failedOutcome).toEqual({
+        status: "failed",
+        error: {
+            name: "Error",
+            message: stepError.message
+        }
+    })
 
     await new Runtime({ journalStore }).resume(workflow, { runId: "run-123" }).waitForOutcome()
 
