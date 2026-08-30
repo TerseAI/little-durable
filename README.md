@@ -22,11 +22,15 @@ Some key features:
 - Type safety: Type safety enforced everywhere with Zod enforcing serialization safety in the Journal interactions.
 
 ```ts
+import { mkdtemp } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { FileJournalStore, Runtime, defineWorkflow, sleep, step } from "little-durable"
 import { z } from "zod"
 
 // 1 line runtime init
-const runtime = new Runtime({ journalStore: new FileJournalStore("./tmp") })
+const runtime = new Runtime({ journalStore: new FileJournalStore(await mkdtemp(join(tmpdir(), "little-durable-test-"))) })
 
 // Build your workflow
 const WelcomeWorkflow = defineWorkflow({
@@ -79,7 +83,7 @@ if (outcome.status === "completed") {
 }
 ```
 
-Execution returns either `{ status: "completed" }` or `{ status: "suspended", suspension }`. You can inspect the persisted run separately:
+We also have some convenience methods to see the state of a run.
 
 ```ts
 const run = await runtime.getRun({ runId: "run-123" })
@@ -89,8 +93,6 @@ const suspension = await runtime.getSuspension({ runId: "run-123" })
 // { waitId: "wait_01...", request: { type: "hook", name: "timer", payload: { wakeAt: "..." } } }
 // or undefined when no unresolved wait exists
 ```
-
-`getRun()` returns identity metadata, not execution status. The outcome returned by `start()` or `resume()` is the authoritative completed-versus-suspended result.
 
 This is the bare bones of a durable runtime. From here, you can chose where to store the journal by simply implementing an interface and plugging it in. (See fileJournalStore.ts for an example implementation)
 
@@ -103,7 +105,7 @@ export interface JournalStore {
 }
 ```
 
-It doesn't care where you run it! Run it on a few nodes like Temporal, run it on Workers, sandboxes etc..
+It doesn't care where you run it! Run it on a hosted k8s pod, run it on Workers, sandboxes etc..
 
 We make it really easy to plug into an external control plane
 
@@ -140,17 +142,13 @@ The hook system is also extremely malleable. Very easy to add Slack/email Human 
 ```ts
 const ApprovalHook = defineHook({
     name: "approval",
-    request: z
-        .object({
-            message: z.string()
-        })
-        .strict(),
-    resolution: z
-        .object({
-            approved: z.boolean(),
-            approvedBy: z.string()
-        })
-        .strict()
+    request: z.object({
+        message: z.string()
+    }),
+    resolution: z.object({
+        approved: z.boolean(),
+        approvedBy: z.string()
+    })
 })
 
 const WelcomeWorkflow = defineWorkflow({
@@ -167,7 +165,7 @@ const WelcomeWorkflow = defineWorkflow({
             message: "Deploy to production?"
         })
 
-        console.log("Post approval: They said: {approved}")
+        console.log("Post approval:", approved)
     }
 })
 
