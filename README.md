@@ -1,5 +1,11 @@
 # Little Durable
 
+[![npm](https://img.shields.io/npm/v/little-durable)](https://www.npmjs.com/package/little-durable)
+[![CI](https://github.com/TerseAI/little-durable/actions/workflows/ci.yml/badge.svg)](https://github.com/TerseAI/little-durable/actions/workflows/ci.yml)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5%2B-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Documentation](https://img.shields.io/badge/docs-read-4B5563)](./Docs.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
+
 This is an extremely light-weight, runtime and storage agnostic, malleable, Durable Workflow runtime.
 
 This project was build entirely with the TDD + AI approach. Everything started with tests, and everything is heavily unit tested.
@@ -16,7 +22,7 @@ So I made this!
 
 Some key features:
 
-- Insanely lightweight: The only dependencies are ulid, ms, and zod
+- Insanely lightweight: The only dependencies are ulid and ms.
 - Storage agnostic: Journal can be Postgres, File System, Durable Object etc...
 - Runtime agnostic: Runs anywhere you can import this npm package
 - Type safety: Type safety enforced everywhere with Zod enforcing serialization safety in the Journal interactions.
