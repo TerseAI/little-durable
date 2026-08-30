@@ -30,6 +30,14 @@
     "publishConfig": {
         "access": "public"
     },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/TerseAI/little-durable.git"
+    },
+    "homepage": "https://github.com/TerseAI/little-durable#readme",
+    "bugs": {
+        "url": "https://github.com/TerseAI/little-durable/issues"
+    },
     "scripts": {
         "build": "rm -rf dist && tsc -p tsconfig.build.json",
         "check": "pnpm run format:check && pnpm run typecheck && pnpm run test && pnpm run build",
