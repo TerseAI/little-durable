@@ -6,6 +6,7 @@ The sample demonstrates:
 
 - a typed workflow created with `defineWorkflow`
 - durable work wrapped in `step`
+- streamed lifecycle events from both `Runtime.start` and `Runtime.resumeHook`
 - a typed human-approval hook using `defineHook` and `waitFor`
 - process-independent resume with `Runtime.resumeHook`
 - filesystem persistence with `FileJournalStore`
@@ -25,7 +26,7 @@ npm test
 
 ## Run the workflow
 
-Start a sample order. This executes the preparation step and suspends on approval:
+Start a sample order. The CLI prints each streamed runtime event as the preparation step executes and the run suspends on approval:
 
 ```bash
 npm run workflow -- start order-1001 12500
@@ -38,7 +39,7 @@ npm run workflow -- status order-1001
 npm run workflow -- journal order-1001
 ```
 
-Approve or reject it. Either command replays the workflow, reuses the journaled preparation result, resolves the hook, and records the decision:
+Approve or reject it. Either command streams the resumed execution, reuses the journaled preparation result, resolves the hook, and records the decision:
 
 ```bash
 npm run workflow -- approve order-1001 Grace

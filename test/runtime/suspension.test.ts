@@ -4,6 +4,7 @@ import { expect } from "vitest"
 import { FileJournalStore, JournalEventSchema, Runtime, sleep } from "../../src/index.js"
 import type { JournalStore } from "../../src/index.js"
 import { test } from "../fixtures/filesystem.js"
+import { waitForRuntimeOutcome } from "../fixtures/runtime.js"
 import { defineInputlessWorkflow } from "../fixtures/workflow.js"
 
 test("delivering the same resolution again is idempotent", async ({ journalDirectory }) => {
@@ -16,27 +17,33 @@ test("delivering the same resolution again is idempotent", async ({ journalDirec
         execution.push("after-second-sleep")
     })
     const journalStore = new FileJournalStore(journalDirectory)
-    const firstOutcome = await new Runtime({ journalStore }).start(workflow, {
-        runId: "run-123",
-        input: null
-    })
+    const firstOutcome = await waitForRuntimeOutcome(
+        new Runtime({ journalStore }).start(workflow, {
+            runId: "run-123",
+            input: null
+        })
+    )
 
     if (firstOutcome.status !== "suspended") throw new Error("Expected the workflow to be suspended")
 
     await delay(35)
 
-    const secondOutcome = await new Runtime({ journalStore }).resumeTimer(workflow, {
-        runId: "run-123",
-        waitId: firstOutcome.suspension.waitId
-    })
+    const secondOutcome = await waitForRuntimeOutcome(
+        new Runtime({ journalStore }).resumeTimer(workflow, {
+            runId: "run-123",
+            waitId: firstOutcome.suspension.waitId
+        })
+    )
 
     if (secondOutcome.status !== "suspended") throw new Error("Expected the workflow to be suspended")
     expect(secondOutcome.suspension.waitId).not.toBe(firstOutcome.suspension.waitId)
 
-    const duplicateOutcome = await new Runtime({ journalStore }).resumeTimer(workflow, {
-        runId: "run-123",
-        waitId: firstOutcome.suspension.waitId
-    })
+    const duplicateOutcome = await waitForRuntimeOutcome(
+        new Runtime({ journalStore }).resumeTimer(workflow, {
+            runId: "run-123",
+            waitId: firstOutcome.suspension.waitId
+        })
+    )
 
     expect(duplicateOutcome).toEqual(secondOutcome)
     expect(execution).toEqual(["before-first-sleep", "before-first-sleep", "before-second-sleep", "before-first-sleep", "before-second-sleep"])
@@ -54,29 +61,35 @@ test("rejects a conflicting resolution for an already resolved wait", async ({ j
         await sleep("5s")
     })
     const journalStore = new FileJournalStore(journalDirectory)
-    const firstOutcome = await new Runtime({ journalStore }).start(workflow, {
-        runId: "run-123",
-        input: null
-    })
+    const firstOutcome = await waitForRuntimeOutcome(
+        new Runtime({ journalStore }).start(workflow, {
+            runId: "run-123",
+            input: null
+        })
+    )
 
     if (firstOutcome.status !== "suspended") throw new Error("Expected the workflow to be suspended")
 
     await delay(35)
 
-    await new Runtime({ journalStore }).resumeTimer(workflow, {
-        runId: "run-123",
-        waitId: firstOutcome.suspension.waitId
-    })
+    await waitForRuntimeOutcome(
+        new Runtime({ journalStore }).resumeTimer(workflow, {
+            runId: "run-123",
+            waitId: firstOutcome.suspension.waitId
+        })
+    )
 
     await expect(
-        new Runtime({ journalStore }).resume(workflow, {
-            runId: "run-123",
-            event: {
-                type: "wait.resolved",
-                waitId: firstOutcome.suspension.waitId,
-                payload: false
-            }
-        })
+        waitForRuntimeOutcome(
+            new Runtime({ journalStore }).resume(workflow, {
+                runId: "run-123",
+                event: {
+                    type: "wait.resolved",
+                    waitId: firstOutcome.suspension.waitId,
+                    payload: false
+                }
+            })
+        )
     ).rejects.toThrow("already resolved with a different payload")
 
     expect(execution).toEqual(["before-first-sleep", "before-first-sleep", "before-second-sleep"])
@@ -102,20 +115,24 @@ test("rejects a resolution for an unknown wait before replaying", async ({ journ
     })
     const journalStore = new FileJournalStore(journalDirectory)
 
-    await new Runtime({ journalStore }).start(workflow, {
-        runId: "run-123",
-        input: null
-    })
+    await waitForRuntimeOutcome(
+        new Runtime({ journalStore }).start(workflow, {
+            runId: "run-123",
+            input: null
+        })
+    )
 
     await expect(
-        new Runtime({ journalStore }).resume(workflow, {
-            runId: "run-123",
-            event: {
-                type: "wait.resolved",
-                waitId: "wait-unknown",
-                payload: null
-            }
-        })
+        waitForRuntimeOutcome(
+            new Runtime({ journalStore }).resume(workflow, {
+                runId: "run-123",
+                event: {
+                    type: "wait.resolved",
+                    waitId: "wait-unknown",
+                    payload: null
+                }
+            })
+        )
     ).rejects.toThrow('Wait "wait-unknown" does not exist in run "run-123"')
 
     expect(execution).toEqual(["before"])
@@ -130,10 +147,12 @@ test("does not replay when recording a resolution fails", async ({ journalDirect
         execution.push("after")
     })
     const journalStore = new FileJournalStore(journalDirectory)
-    const firstOutcome = await new Runtime({ journalStore }).start(workflow, {
-        runId: "run-123",
-        input: null
-    })
+    const firstOutcome = await waitForRuntimeOutcome(
+        new Runtime({ journalStore }).start(workflow, {
+            runId: "run-123",
+            input: null
+        })
+    )
 
     if (firstOutcome.status !== "suspended") throw new Error("Expected the workflow to be suspended")
 
@@ -152,14 +171,16 @@ test("does not replay when recording a resolution fails", async ({ journalDirect
     }
 
     await expect(
-        new Runtime({ journalStore: failingJournalStore }).resume(workflow, {
-            runId: "run-123",
-            event: {
-                type: "wait.resolved",
-                waitId: firstOutcome.suspension.waitId,
-                payload: null
-            }
-        })
+        waitForRuntimeOutcome(
+            new Runtime({ journalStore: failingJournalStore }).resume(workflow, {
+                runId: "run-123",
+                event: {
+                    type: "wait.resolved",
+                    waitId: firstOutcome.suspension.waitId,
+                    payload: null
+                }
+            })
+        )
     ).rejects.toBe(journalError)
 
     expect(execution).toEqual(["before"])
@@ -173,19 +194,23 @@ test("a resolution delivered after run completion is a no-op", async ({ journalD
     })
     const journalStore = new FileJournalStore(journalDirectory)
 
-    await new Runtime({ journalStore }).start(workflow, {
-        runId: "run-123",
-        input: null
-    })
+    await waitForRuntimeOutcome(
+        new Runtime({ journalStore }).start(workflow, {
+            runId: "run-123",
+            input: null
+        })
+    )
 
-    const outcome = await new Runtime({ journalStore }).resume(workflow, {
-        runId: "run-123",
-        event: {
-            type: "wait.resolved",
-            waitId: "wait-stale",
-            payload: null
-        }
-    })
+    const outcome = await waitForRuntimeOutcome(
+        new Runtime({ journalStore }).resume(workflow, {
+            runId: "run-123",
+            event: {
+                type: "wait.resolved",
+                waitId: "wait-stale",
+                payload: null
+            }
+        })
+    )
 
     expect(outcome).toEqual({ status: "completed" })
     expect(workflowExecutions).toBe(1)
@@ -200,19 +225,23 @@ test("resuming an unresolved run returns the same suspension", async ({ journalD
         execution.push("after")
     })
 
-    const firstOutcome = await new Runtime({
-        journalStore: new FileJournalStore(journalDirectory)
-    }).start(workflow, {
-        runId: "run-123",
-        input: null
-    })
+    const firstOutcome = await waitForRuntimeOutcome(
+        new Runtime({
+            journalStore: new FileJournalStore(journalDirectory)
+        }).start(workflow, {
+            runId: "run-123",
+            input: null
+        })
+    )
 
     expect(firstOutcome.status).toBe("suspended")
 
     const restartedJournalStore = new FileJournalStore(journalDirectory)
-    const resumedOutcome = await new Runtime({
-        journalStore: restartedJournalStore
-    }).resume(workflow, { runId: "run-123" })
+    const resumedOutcome = await waitForRuntimeOutcome(
+        new Runtime({
+            journalStore: restartedJournalStore
+        }).resume(workflow, { runId: "run-123" })
+    )
 
     expect(resumedOutcome).toEqual(firstOutcome)
     expect(execution).toEqual(["before", "before"])

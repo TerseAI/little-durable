@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { FileJournalStore, Runtime, defineHook, defineWorkflow, waitFor } from "../../src/index.js"
 import { test } from "../fixtures/filesystem.js"
+import { waitForRuntimeOutcome } from "../fixtures/runtime.js"
 
 test("a workflow definition restores its typed input from the journal on resume", async ({ journalDirectory }) => {
     const ApprovalHook = defineHook({
@@ -24,19 +25,23 @@ test("a workflow definition restores its typed input from the journal on resume"
     })
     const runtime = new Runtime({ journalStore: new FileJournalStore(journalDirectory) })
 
-    const firstOutcome = await runtime.start(workflow, {
-        runId: "run-123",
-        input: { occurredAt: "2026-08-26T12:00:00.000Z" }
-    })
+    const firstOutcome = await waitForRuntimeOutcome(
+        runtime.start(workflow, {
+            runId: "run-123",
+            input: { occurredAt: "2026-08-26T12:00:00.000Z" }
+        })
+    )
 
     if (firstOutcome.status !== "suspended") throw new Error("Expected the workflow to be suspended")
 
-    await runtime.resumeHook(ApprovalHook, {
-        runId: "run-123",
-        workflow,
-        waitId: firstOutcome.suspension.waitId,
-        resolution: { approved: true }
-    })
+    await waitForRuntimeOutcome(
+        runtime.resumeHook(ApprovalHook, {
+            runId: "run-123",
+            workflow,
+            waitId: firstOutcome.suspension.waitId,
+            resolution: { approved: true }
+        })
+    )
 
     expect(receivedDates).toHaveLength(2)
     expect(receivedDates.every(value => value instanceof Date)).toBe(true)
@@ -53,10 +58,12 @@ test("invalid workflow input is rejected before the run is recorded", async ({ j
     })
 
     await expect(
-        runtime.start(workflow, {
-            runId: "run-123",
-            input: { message: "" }
-        })
+        waitForRuntimeOutcome(
+            runtime.start(workflow, {
+                runId: "run-123",
+                input: { message: "" }
+            })
+        )
     ).rejects.toBeInstanceOf(z.ZodError)
 
     expect(await journalStore.list({ runId: "run-123" })).toEqual([])

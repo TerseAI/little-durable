@@ -17,7 +17,9 @@ test("suspends for approval, resumes, and reuses the completed preparation step"
     const workflow = createOrderApprovalWorkflow({ resultDirectory: join(directory, "results") })
     const runId = "order-1001"
 
-    const firstOutcome = await new Runtime({ journalStore }).start(workflow, {
+    const runtimeEvents = []
+
+    for await (const event of new Runtime({ journalStore }).start(workflow, {
         runId,
         input: {
             orderId: "order-1001",
@@ -25,25 +27,39 @@ test("suspends for approval, resumes, and reuses the completed preparation step"
             itemCount: 3,
             totalCents: 12500
         }
-    })
+    })) {
+        runtimeEvents.push(event)
+    }
 
-    assert.equal(firstOutcome.status, "suspended")
-    if (firstOutcome.status !== "suspended") throw new Error("Expected the workflow to suspend")
+    assert.deepEqual(
+        runtimeEvents.map(event => event.type),
+        ["runtime.started", "step.started", "step.completed", "runtime.suspended"]
+    )
 
-    assert.equal(firstOutcome.suspension.request.name, "order-approval")
+    const suspendedEvent = runtimeEvents.at(-1)
+    if (suspendedEvent?.type !== "runtime.suspended") throw new Error("Expected the workflow to suspend")
+
+    assert.equal(suspendedEvent.suspension.request.name, "order-approval")
     assert.equal((await journalStore.listByType({ runId, eventType: "step.completed" })).length, 1)
 
-    const resumedOutcome = await new Runtime({ journalStore }).resumeHook(OrderApprovalHook, {
+    const resumedEvents = []
+
+    for await (const event of new Runtime({ journalStore }).resumeHook(OrderApprovalHook, {
         runId,
         workflow,
-        waitId: firstOutcome.suspension.waitId,
+        waitId: suspendedEvent.suspension.waitId,
         resolution: {
             approved: true,
             decidedBy: "Grace"
         }
-    })
+    })) {
+        resumedEvents.push(event)
+    }
 
-    assert.deepEqual(resumedOutcome, { status: "completed" })
+    assert.deepEqual(
+        resumedEvents.map(event => event.type),
+        ["runtime.resumed", "step.started", "step.completed", "runtime.completed"]
+    )
     assert.equal((await journalStore.listByType({ runId, eventType: "step.completed" })).length, 2)
     assert.equal((await journalStore.listByType({ runId, eventType: "wait.resolved" })).length, 1)
 
@@ -57,7 +73,12 @@ test("suspends for approval, resumes, and reuses the completed preparation step"
     })
 
     const eventCount = (await journalStore.list({ runId })).length
-    assert.deepEqual(await new Runtime({ journalStore }).resume(workflow, { runId }), { status: "completed" })
+    const completedEvents = []
+    for await (const event of new Runtime({ journalStore }).resume(workflow, { runId })) completedEvents.push(event)
+    assert.deepEqual(
+        completedEvents.map(event => event.type),
+        ["runtime.completed"]
+    )
     assert.equal((await journalStore.list({ runId })).length, eventCount)
 })
 

@@ -21,7 +21,7 @@ const journalDirectory = await mkdtemp(join(tmpdir(), "little-durable-test-"))
 const journalStore = new FileJournalStore(journalDirectory)
 const runtime = new Runtime({ journalStore })
 
-const startOutcome = await runtime.start(workflow, {
+const startEvents = runtime.start(workflow, {
     runId,
     input: {
         recipient: "ada@example.com",
@@ -30,16 +30,16 @@ const startOutcome = await runtime.start(workflow, {
 })
 
 // Replay an interrupted run without resolving a wait
-const resumeOutcome = await runtime.resume(workflow, { runId })
+const resumeEvents = runtime.resume(workflow, { runId })
 
 // Resume a timer
-const timerOutcome = await runtime.resumeTimer(workflow, {
+const timerEvents = runtime.resumeTimer(workflow, {
     runId,
     waitId
 })
 
 // Resume a hook with its resolution payload
-const hookOutcome = await runtime.resumeHook(ApprovalHook, {
+const hookEvents = runtime.resumeHook(ApprovalHook, {
     workflow,
     runId,
     waitId,
@@ -50,18 +50,25 @@ const hookOutcome = await runtime.resumeHook(ApprovalHook, {
 })
 ```
 
-`start()`, `resume()`, `resumeTimer()`, and `resumeHook()` return a `RuntimeOutcome`:
+`start()`, `resume()`, `resumeTimer()`, and `resumeHook()` return a `ReadableStream<RuntimeEvent>`. Every execution attempt has the same event-driven interface:
 
 ```ts
-switch (startOutcome.status) {
-    case "completed":
-        console.log("Workflow completed")
-        break
+for await (const event of startEvents) {
+    switch (event.type) {
+        case "step.started":
+        case "step.completed":
+        case "step.failed":
+            console.log(event)
+            break
 
-    case "suspended":
-        // TypeScript knows suspension exists in this branch.
-        console.log("Workflow suspended", startOutcome.suspension)
-        break
+        case "runtime.suspended":
+            console.log("Workflow suspended", event.suspension)
+            break
+
+        case "runtime.completed":
+            console.log("Workflow completed")
+            break
+    }
 }
 ```
 
@@ -114,7 +121,7 @@ const workflow = defineWorkflow({
 Now, we can combine that with our runtime above and run our first workflow!
 
 ```ts
-const outcome = await runtime.start(workflow, {
+const events = runtime.start(workflow, {
     runId: "run-123",
     input: {
         recipient: "ada@example.com",
@@ -122,11 +129,9 @@ const outcome = await runtime.start(workflow, {
     }
 })
 
-if (outcome.status === "completed") {
-    // Yay it run!
-    console.log("Workflow completed")
-} else {
-    console.log("Workflow suspended", outcome.suspension)
+for await (const event of events) {
+    if (event.type === "runtime.completed") console.log("Workflow completed")
+    if (event.type === "runtime.suspended") console.log("Workflow suspended", event.suspension)
 }
 ```
 

@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 
 import { FileJournalStore, Runtime } from "little-durable"
-import type { RuntimeOutcome } from "little-durable"
+import type { RuntimeEvent, Suspension } from "little-durable"
 
 import { OrderApprovalHook, createOrderApprovalWorkflow } from "./workflows/order-approval.js"
 
@@ -36,7 +36,17 @@ async function main(args: readonly string[]): Promise<void> {
 async function startWorkflow(args: readonly string[]): Promise<void> {
     const runId = args[0] ?? "order-run-001"
     const totalCents = parsePositiveInteger(args[1] ?? "12500", "total-cents")
-    const outcome = await runtime.start(workflow, {
+
+    printHeading("Starting order approval")
+    printDetails([
+        ["Run ID", runId],
+        ["Customer", "ada@example.com"],
+        ["Items", "3"],
+        ["Total", formatCurrency(totalCents)]
+    ])
+    console.log("\nEvents")
+
+    const events = runtime.start(workflow, {
         runId,
         input: {
             orderId: runId,
@@ -46,7 +56,7 @@ async function startWorkflow(args: readonly string[]): Promise<void> {
         }
     })
 
-    printOutcome(runId, outcome)
+    for await (const event of events) printRuntimeEvent(event)
 }
 
 async function resolveApproval(args: readonly string[], approved: boolean): Promise<void> {
@@ -55,36 +65,48 @@ async function resolveApproval(args: readonly string[], approved: boolean): Prom
     const suspension = await runtime.getSuspension({ runId })
 
     if (!suspension) {
-        console.log(`Run ${runId} has no active approval request.`)
+        printHeading("Nothing to resolve")
+        printDetails([
+            ["Run ID", runId],
+            ["Status", "No active approval request"]
+        ])
         return
     }
 
-    const outcome = await runtime.resumeHook(OrderApprovalHook, {
+    printHeading(approved ? "Approving order" : "Rejecting order")
+    printDetails([
+        ["Run ID", runId],
+        ["Decision", approved ? "Approve" : "Reject"],
+        ["Reviewer", decidedBy]
+    ])
+
+    console.log("\nEvents")
+
+    const events = runtime.resumeHook(OrderApprovalHook, {
         runId,
         workflow,
         waitId: suspension.waitId,
         resolution: { approved, decidedBy }
     })
 
-    printOutcome(runId, outcome)
+    for await (const event of events) printRuntimeEvent(event)
 }
 
 async function showStatus(args: readonly string[]): Promise<void> {
     const runId = requireArgument(args[0], "run-id")
     const [run, suspension, events] = await Promise.all([runtime.getRun({ runId }), runtime.getSuspension({ runId }), journalStore.list({ runId })])
+    const status = suspension ? "Waiting for approval" : events.some(event => event.type === "run.completed") ? "Completed" : "Running"
 
-    console.log(
-        JSON.stringify(
-            {
-                ...run,
-                status: suspension ? "suspended" : events.some(event => event.type === "run.completed") ? "completed" : "running",
-                suspension,
-                eventCount: events.length
-            },
-            null,
-            2
-        )
-    )
+    printHeading("Run status")
+    printDetails([
+        ["Run ID", run.runId],
+        ["Workflow", run.workflowName],
+        ["Status", status],
+        ["Started", run.startedAt],
+        ["Journal events", String(events.length)]
+    ])
+
+    if (suspension) printSuspension(runId, suspension)
 }
 
 async function showJournal(args: readonly string[]): Promise<void> {
@@ -92,14 +114,86 @@ async function showJournal(args: readonly string[]): Promise<void> {
     console.log(JSON.stringify(await journalStore.list({ runId }), null, 2))
 }
 
-function printOutcome(runId: string, outcome: RuntimeOutcome): void {
-    if (outcome.status === "completed") {
-        console.log(`Run ${runId} completed. Result: ${resolve(dataDirectory, "results", `${runId}.json`)}`)
-        return
+function printRuntimeEvent(event: RuntimeEvent): void {
+    switch (event.type) {
+        case "runtime.started":
+            console.log(`  ${color.cyan("◇")} ${color.dim("runtime")}  ${event.workflowName} ${color.dim("started")}`)
+            return
+        case "runtime.resumed":
+            console.log(`  ${color.cyan("◇")} ${color.dim("runtime")}  ${event.workflowName} ${color.dim("resumed")}`)
+            return
+        case "step.started":
+            console.log(`  ${color.cyan("→")} ${color.dim("step")}     ${event.name}`)
+            return
+        case "step.completed":
+            console.log(`  ${color.green("✓")} ${color.dim("step")}     ${event.name} ${color.dim(`(${event.durationMs}ms)`)}`)
+            return
+        case "step.failed":
+            console.log(`  ${color.red("✗")} ${color.dim("step")}     ${event.name} ${color.dim(`(${event.durationMs}ms):`)} ${color.red(event.error.message)}`)
+            return
+        case "runtime.completed":
+            console.log(`  ${color.green("✓")} ${color.dim("runtime")}  completed ${color.dim(`(${event.durationMs}ms)`)}`)
+            console.log()
+            printDetails([["Result", resolve(dataDirectory, "results", `${event.runId}.json`)]])
+            return
+        case "runtime.suspended":
+            console.log(`  ${color.yellow("⏸")} ${color.dim("runtime")}  suspended`)
+            printSuspension(event.runId, event.suspension, false)
+    }
+}
+
+function printSuspension(runId: string, suspension: Suspension, showHeading = true): void {
+    if (showHeading) printHeading(color.yellow("⏸ Waiting for approval"))
+    else console.log()
+
+    if (suspension.request.name === OrderApprovalHook.name) {
+        const request = OrderApprovalHook.request.parse(suspension.request.payload)
+        printDetails([
+            ["Order", request.orderId],
+            ["Summary", request.summary],
+            ["Total", formatCurrency(request.totalCents)],
+            ["Wait ID", suspension.waitId]
+        ])
+    } else {
+        printDetails([
+            ["Hook", suspension.request.name],
+            ["Wait ID", suspension.waitId]
+        ])
     }
 
-    console.log(`Run ${runId} suspended.`)
-    console.log(JSON.stringify(outcome.suspension, null, 2))
+    console.log("\nNext")
+    console.log(`  npm run workflow -- approve ${runId} Grace`)
+    console.log(`  npm run workflow -- reject ${runId} Grace`)
+}
+
+function printHeading(title: string): void {
+    console.log(`\n${color.bold(title)}`)
+}
+
+function printDetails(rows: readonly (readonly [label: string, value: string])[]): void {
+    const labelWidth = Math.max(...rows.map(([label]) => label.length))
+    for (const [label, value] of rows) console.log(`  ${label.padEnd(labelWidth)}  ${value}`)
+}
+
+function formatCurrency(totalCents: number): string {
+    return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD"
+    }).format(totalCents / 100)
+}
+
+const color = {
+    bold: (value: string) => style(value, 1),
+    dim: (value: string) => style(value, 2),
+    red: (value: string) => style(value, 31),
+    green: (value: string) => style(value, 32),
+    yellow: (value: string) => style(value, 33),
+    cyan: (value: string) => style(value, 36)
+}
+
+function style(value: string, code: number): string {
+    if (!process.stdout.isTTY || process.env.NO_COLOR !== undefined) return value
+    return `\u001B[${code}m${value}\u001B[0m`
 }
 
 function requireArgument(value: string | undefined, name: string): string {
@@ -114,12 +208,20 @@ function parsePositiveInteger(value: string, name: string): number {
 }
 
 function showHelp(): void {
-    console.log(`Usage:
-  npm run workflow -- start [run-id] [total-cents]
-  npm run workflow -- approve <run-id> [reviewer]
-  npm run workflow -- reject <run-id> [reviewer]
-  npm run workflow -- status <run-id>
-  npm run workflow -- journal <run-id>`)
+    console.log(`Little Durable · Order approval demo
+
+Usage
+  npm run workflow -- <command>
+
+Commands
+  start [run-id] [total-cents]     Start an order and wait for approval
+  approve <run-id> [reviewer]      Approve a suspended order
+  reject <run-id> [reviewer]       Reject a suspended order
+  status <run-id>                  Show the current run status
+  journal <run-id>                 Print the durable event journal
+
+Try it
+  npm run workflow -- start order-1001 12500`)
 }
 
 class UsageError extends Error {
@@ -136,4 +238,10 @@ const workflow = createOrderApprovalWorkflow({
     resultDirectory: resolve(dataDirectory, "results")
 })
 
-await main(process.argv.slice(2))
+try {
+    await main(process.argv.slice(2))
+} catch (error) {
+    console.error(`\n✗ ${error instanceof Error ? error.message : String(error)}`)
+    if (error instanceof UsageError) showHelp()
+    process.exitCode = 1
+}

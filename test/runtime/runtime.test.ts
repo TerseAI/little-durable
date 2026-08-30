@@ -4,17 +4,20 @@ import { z } from "zod"
 import { FileJournalStore, JournalEventSchema, Runtime, createRunEventId, createStepEventId, defineWorkflow, step } from "../../src/index.js"
 import type { JournalStore } from "../../src/index.js"
 import { test } from "../fixtures/filesystem.js"
+import { waitForRuntimeOutcome } from "../fixtures/runtime.js"
 import { defineInputlessWorkflow } from "../fixtures/workflow.js"
 
 test("gets run metadata without exposing journal events", async ({ journalDirectory }) => {
     const runtime = new Runtime({ journalStore: new FileJournalStore(journalDirectory) })
 
-    await runtime.start(
-        defineInputlessWorkflow(async () => {}),
-        {
-            runId: "run-123",
-            input: null
-        }
+    await waitForRuntimeOutcome(
+        runtime.start(
+            defineInputlessWorkflow(async () => {}),
+            {
+                runId: "run-123",
+                input: null
+            }
+        )
     )
 
     expect(await runtime.getRun({ runId: "run-123" })).toEqual({
@@ -35,20 +38,22 @@ test("runs a step and records its input", async ({ journalDirectory }) => {
     const runtime = new Runtime({ journalStore })
     let result: string | undefined
 
-    await runtime.start(
-        defineInputlessWorkflow(async () => {
-            result = await step({
-                name: "create-greeting",
-                input: {
-                    person: "Ada"
-                },
-                run: async input => `Hello, ${input.person}`
-            })
-        }),
-        {
-            runId: "run-123",
-            input: null
-        }
+    await waitForRuntimeOutcome(
+        runtime.start(
+            defineInputlessWorkflow(async () => {
+                result = await step({
+                    name: "create-greeting",
+                    input: {
+                        person: "Ada"
+                    },
+                    run: async input => `Hello, ${input.person}`
+                })
+            }),
+            {
+                runId: "run-123",
+                input: null
+            }
+        )
     )
 
     expect(result).toBe("Hello, Ada")
@@ -124,16 +129,18 @@ test("resuming an interrupted step does not record another step started event", 
     })
 
     await expect(
-        new Runtime({ journalStore: interruptedJournalStore }).start(workflow, {
-            runId: "run-123",
-            input: null
-        })
+        waitForRuntimeOutcome(
+            new Runtime({ journalStore: interruptedJournalStore }).start(workflow, {
+                runId: "run-123",
+                input: null
+            })
+        )
     ).rejects.toBe(interruptedError)
 
     expect(await fileJournalStore.listByType({ runId: "run-123", eventType: "step.started" })).toHaveLength(1)
     expect(await fileJournalStore.listByType({ runId: "run-123", eventType: "step.completed" })).toHaveLength(0)
 
-    await new Runtime({ journalStore: fileJournalStore }).resume(workflow, { runId: "run-123" })
+    await waitForRuntimeOutcome(new Runtime({ journalStore: fileJournalStore }).resume(workflow, { runId: "run-123" }))
 
     expect(stepExecutions).toBe(2)
     expect(await fileJournalStore.listByType({ runId: "run-123", eventType: "step.started" })).toHaveLength(1)
@@ -164,14 +171,18 @@ test("resuming a completed workflow does not run it again", async ({ journalDire
 
     const journalStore = new FileJournalStore(journalDirectory)
 
-    await new Runtime({ journalStore }).start(workflow, {
-        runId: "run-123",
-        input: null
-    })
+    await waitForRuntimeOutcome(
+        new Runtime({ journalStore }).start(workflow, {
+            runId: "run-123",
+            input: null
+        })
+    )
 
-    await new Runtime({
-        journalStore: new FileJournalStore(journalDirectory)
-    }).resume(workflow, { runId: "run-123" })
+    await waitForRuntimeOutcome(
+        new Runtime({
+            journalStore: new FileJournalStore(journalDirectory)
+        }).resume(workflow, { runId: "run-123" })
+    )
 
     expect(workflowExecutions).toBe(1)
     expect(stepExecutions).toBe(1)
@@ -203,15 +214,19 @@ test("cannot resume a run with a different workflow", async ({ journalDirectory 
     const journalStore = new FileJournalStore(journalDirectory)
     const originalWorkflow = defineInputlessWorkflow(async () => undefined, "original-workflow")
 
-    await new Runtime({ journalStore }).start(originalWorkflow, {
-        runId: "run-123",
-        input: null
-    })
+    await waitForRuntimeOutcome(
+        new Runtime({ journalStore }).start(originalWorkflow, {
+            runId: "run-123",
+            input: null
+        })
+    )
 
     await expect(
-        new Runtime({ journalStore }).resume(
-            defineInputlessWorkflow(async () => undefined, "different-workflow"),
-            { runId: "run-123" }
+        waitForRuntimeOutcome(
+            new Runtime({ journalStore }).resume(
+                defineInputlessWorkflow(async () => undefined, "different-workflow"),
+                { runId: "run-123" }
+            )
         )
     ).rejects.toThrow('Run "run-123" belongs to workflow "original-workflow", not "different-workflow"')
 })
@@ -222,22 +237,24 @@ test("runs a step that throws and records the error", async ({ journalDirectory 
     const stepError = new Error("test error")
 
     await expect(
-        runtime.start(
-            defineInputlessWorkflow(async () => {
-                await step({
-                    name: "create-greeting",
-                    input: {
-                        person: "Ada"
-                    },
-                    run: async () => {
-                        throw stepError
-                    }
-                })
-            }),
-            {
-                runId: "run-123",
-                input: null
-            }
+        waitForRuntimeOutcome(
+            runtime.start(
+                defineInputlessWorkflow(async () => {
+                    await step({
+                        name: "create-greeting",
+                        input: {
+                            person: "Ada"
+                        },
+                        run: async () => {
+                            throw stepError
+                        }
+                    })
+                }),
+                {
+                    runId: "run-123",
+                    input: null
+                }
+            )
         )
     ).rejects.toBe(stepError)
 
@@ -316,10 +333,12 @@ test("starting a workflow records its run started event", async ({ journalDirect
         }
     })
 
-    await runtime.start(workflow, {
-        runId: "run-123",
-        input
-    })
+    await waitForRuntimeOutcome(
+        runtime.start(workflow, {
+            runId: "run-123",
+            input
+        })
+    )
 
     expect(receivedInput).toEqual(input)
     const eventId = createRunEventId({ type: "run.started" })
@@ -336,12 +355,14 @@ test("cannot start a run again after the runtime restarts", async ({ journalDire
         journalStore: new FileJournalStore(journalDirectory)
     })
 
-    await runtime.start(
-        defineInputlessWorkflow(async () => undefined, "first-workflow"),
-        {
-            runId: "run-123",
-            input: null
-        }
+    await waitForRuntimeOutcome(
+        runtime.start(
+            defineInputlessWorkflow(async () => undefined, "first-workflow"),
+            {
+                runId: "run-123",
+                input: null
+            }
+        )
     )
 
     let secondWorkflowWasExecuted = false
@@ -351,14 +372,16 @@ test("cannot start a run again after the runtime restarts", async ({ journalDire
     })
 
     await expect(
-        restartedRuntime.start(
-            defineInputlessWorkflow(async () => {
-                secondWorkflowWasExecuted = true
-            }, "second-workflow"),
-            {
-                runId: "run-123",
-                input: null
-            }
+        waitForRuntimeOutcome(
+            restartedRuntime.start(
+                defineInputlessWorkflow(async () => {
+                    secondWorkflowWasExecuted = true
+                }, "second-workflow"),
+                {
+                    runId: "run-123",
+                    input: null
+                }
+            )
         )
     ).rejects.toThrow()
 
@@ -380,14 +403,16 @@ test("does not execute the workflow when recording its start fails", async () =>
     let workflowWasExecuted = false
 
     await expect(
-        runtime.start(
-            defineInputlessWorkflow(async () => {
-                workflowWasExecuted = true
-            }),
-            {
-                runId: "run-123",
-                input: null
-            }
+        waitForRuntimeOutcome(
+            runtime.start(
+                defineInputlessWorkflow(async () => {
+                    workflowWasExecuted = true
+                }),
+                {
+                    runId: "run-123",
+                    input: null
+                }
+            )
         )
     ).rejects.toBe(journalError)
 

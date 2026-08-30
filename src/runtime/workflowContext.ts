@@ -1,9 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
-import type { JournalStore } from "../types/journalStore.js"
 import type { Suspension } from "../types/runtimeOutcome.js"
 
 import type { DeterministicIdGenerator } from "./deterministicIdGenerator.js"
+import type { ExecutionJournal } from "./executionJournal.js"
 
 export function getWorkflowContext(): WorkflowContext {
     const context = getOptionalWorkflowContext()
@@ -48,7 +48,7 @@ export type ExecutionPhase = "step" | "workflow"
 
 export type WorkflowContext = {
     readonly runId: string
-    readonly journalStore: JournalStore
+    readonly journalStore: ExecutionJournal
     readonly idGenerator: DeterministicIdGenerator
     readonly suspend: (suspension: Suspension) => void
     readonly logicalClock: LogicalClock

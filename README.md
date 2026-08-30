@@ -8,6 +8,8 @@
 
 This is an extremely light-weight, runtime and storage agnostic, malleable, Durable Workflow runtime.
 
+Little Durable is BYOCP (bring your own control plane, yes I just made that up).
+
 This project was build entirely with the TDD + AI approach. Everything started with tests, and everything is heavily unit tested.
 
 # Why Does this Exist?
@@ -72,7 +74,7 @@ const WelcomeWorkflow = defineWorkflow({
 })
 
 // run it
-const outcome = await runtime.start(WelcomeWorkflow, {
+const events = runtime.start(WelcomeWorkflow, {
     runId: "run-123",
     input: {
         // this is type safe!
@@ -81,11 +83,13 @@ const outcome = await runtime.start(WelcomeWorkflow, {
     }
 })
 
-if (outcome.status === "completed") {
-    console.log("Workflow completed")
-} else {
-    // reach out to control plane here. Schedule the time to resume the workflow. Use whatever logic you want here!
-    console.log("Workflow suspended", outcome.suspension)
+for await (const event of events) {
+    console.log(event)
+
+    if (event.type === "runtime.suspended") {
+        // Reach out to your control plane and schedule the run to resume.
+        console.log("Workflow suspended", event.suspension)
+    }
 }
 ```
 
@@ -125,7 +129,7 @@ const workflowName = req.workflowName
 const workflow = fetchWorkflow(workflowName)
 
 // Start a workflow
-const outcome = await runtime.start(workflow, {
+const events = runtime.start(workflow, {
     runId,
     input: {
         // this is type safe!
@@ -134,13 +138,17 @@ const outcome = await runtime.start(workflow, {
     }
 })
 
+for await (const event of events) publishRuntimeEvent(event)
+
 // Resume from a sleep
 const waitId = req.waitId
 
-const resumedOutcome = await runtime.resumeTimer(workflow, {
+const resumedEvents = runtime.resumeTimer(workflow, {
     runId,
     waitId
 })
+
+for await (const event of resumedEvents) publishRuntimeEvent(event)
 ```
 
 The hook system is also extremely malleable. Very easy to add Slack/email Human in the loop steps and plug into an integration system like Composio.
@@ -175,24 +183,29 @@ const WelcomeWorkflow = defineWorkflow({
     }
 })
 
-const outcome = await runtime.start(WelcomeWorkflow, {
+let suspension
+for await (const event of runtime.start(WelcomeWorkflow, {
     runId: "run-123",
     input: {
         recipient: "ada@example.com",
         name: "Ada"
     }
-})
+})) {
+    if (event.type === "runtime.suspended") suspension = event.suspension
+}
 
-if (outcome.status === "suspended") {
-    await runtime.resumeHook(ApprovalHook, {
+if (suspension) {
+    for await (const event of runtime.resumeHook(ApprovalHook, {
         workflow: WelcomeWorkflow,
         runId: "run-123",
-        waitId: outcome.suspension.waitId,
+        waitId: suspension.waitId,
         resolution: {
             approved: true,
             approvedBy: "Ada"
         }
-    })
+    })) {
+        console.log(event)
+    }
 }
 ```
 
