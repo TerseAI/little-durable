@@ -33,7 +33,7 @@ test("suspends for approval, resumes, and reuses the completed preparation step"
 
     assert.deepEqual(
         runtimeEvents.map(event => event.type),
-        ["runtime.started", "step.started", "step.completed", "runtime.suspended"]
+        ["runtime.started", "step.started", "step.completed", "hook.requested", "runtime.suspended"]
     )
 
     const suspendedEvent = runtimeEvents.at(-1)
@@ -58,7 +58,7 @@ test("suspends for approval, resumes, and reuses the completed preparation step"
 
     assert.deepEqual(
         resumedEvents.map(event => event.type),
-        ["runtime.resumed", "step.started", "step.completed", "runtime.completed"]
+        ["hook.resolved", "runtime.resumed", "step.started", "step.completed", "runtime.completed"]
     )
     assert.equal((await journalStore.listByType({ runId, eventType: "step.completed" })).length, 2)
     assert.equal((await journalStore.listByType({ runId, eventType: "wait.resolved" })).length, 1)

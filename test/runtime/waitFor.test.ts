@@ -3,7 +3,6 @@ import { z } from "zod"
 
 import { FileJournalStore, Runtime, defineHook, waitFor } from "../../src/index.js"
 import { test } from "../fixtures/filesystem.js"
-import { waitForRuntimeOutcome } from "../fixtures/runtime.js"
 import { defineInputlessWorkflow } from "../fixtures/workflow.js"
 
 const ApprovalRequestSchema = z
@@ -40,18 +39,18 @@ test("gets the active suspension until its wait is resolved", async ({ journalDi
     })
     const runtime = new Runtime({ journalStore })
 
-    const firstOutcome = await waitForRuntimeOutcome(
-        runtime.start(workflow, {
+    const firstOutcome = await runtime
+        .start(workflow, {
             runId: "run-123",
             input: null
         })
-    )
+        .waitForOutcome()
 
     if (firstOutcome.status !== "suspended") throw new Error("Expected the workflow to be suspended")
     expect(await runtime.getSuspension({ runId: "run-123" })).toEqual(firstOutcome.suspension)
 
-    await waitForRuntimeOutcome(
-        runtime.resumeHook(ApprovalHook, {
+    await runtime
+        .resumeHook(ApprovalHook, {
             runId: "run-123",
             workflow,
             waitId: firstOutcome.suspension.waitId,
@@ -60,7 +59,7 @@ test("gets the active suspension until its wait is resolved", async ({ journalDi
                 approvedBy: "Ada"
             }
         })
-    )
+        .waitForOutcome()
 
     expect(await runtime.getSuspension({ runId: "run-123" })).toBeUndefined()
 })
@@ -78,12 +77,12 @@ test("waitFor suspends a workflow and returns its validated resolution", async (
         resolution = value
     })
 
-    const firstOutcome = await waitForRuntimeOutcome(
-        new Runtime({ journalStore }).start(workflow, {
+    const firstOutcome = await new Runtime({ journalStore })
+        .start(workflow, {
             runId: "run-123",
             input: null
         })
-    )
+        .waitForOutcome()
 
     expect(resolution).toBeUndefined()
     expect(firstOutcome).toMatchObject({
@@ -100,8 +99,8 @@ test("waitFor suspends a workflow and returns its validated resolution", async (
     })
     if (firstOutcome.status !== "suspended") throw new Error("Expected the workflow to be suspended")
 
-    const resumedOutcome = await waitForRuntimeOutcome(
-        new Runtime({ journalStore }).resumeHook(ApprovalHook, {
+    const resumedOutcome = await new Runtime({ journalStore })
+        .resumeHook(ApprovalHook, {
             runId: "run-123",
             workflow,
             waitId: firstOutcome.suspension.waitId,
@@ -110,7 +109,7 @@ test("waitFor suspends a workflow and returns its validated resolution", async (
                 approvedBy: "Ada"
             }
         })
-    )
+        .waitForOutcome()
 
     expect(resumedOutcome).toEqual({ status: "completed" })
     expect(resolution).toEqual({
@@ -127,14 +126,14 @@ test("waitFor rejects an invalid request before journaling it", async ({ journal
     } as unknown as ApprovalRequest
 
     await expect(
-        waitForRuntimeOutcome(
-            new Runtime({ journalStore }).start(
+        new Runtime({ journalStore })
+            .start(
                 defineInputlessWorkflow(async () => {
                     await waitFor(ApprovalHook, invalidRequest)
                 }),
                 { runId: "run-123", input: null }
             )
-        )
+            .waitForOutcome()
     ).rejects.toBeInstanceOf(z.ZodError)
 
     expect(await journalStore.listByType({ runId: "run-123", eventType: "wait.requested" })).toHaveLength(0)
@@ -153,30 +152,30 @@ test("waitFor rejects an invalid resolution without journaling it", async ({ jou
             message: "Deploy to production?"
         })
     })
-    const firstOutcome = await waitForRuntimeOutcome(
-        new Runtime({ journalStore }).start(workflow, {
+    const firstOutcome = await new Runtime({ journalStore })
+        .start(workflow, {
             runId: "run-123",
             input: null
         })
-    )
+        .waitForOutcome()
 
     if (firstOutcome.status !== "suspended") throw new Error("Expected the workflow to be suspended")
 
     await expect(
-        waitForRuntimeOutcome(
-            new Runtime({ journalStore }).resumeHook(ApprovalHook, {
+        new Runtime({ journalStore })
+            .resumeHook(ApprovalHook, {
                 runId: "run-123",
                 workflow,
                 waitId: firstOutcome.suspension.waitId,
                 resolution: invalidResolution
             })
-        )
+            .waitForOutcome()
     ).rejects.toBeInstanceOf(z.ZodError)
 
     expect(await journalStore.listByType({ runId: "run-123", eventType: "wait.resolved" })).toHaveLength(0)
 
-    const resumedOutcome = await waitForRuntimeOutcome(
-        new Runtime({ journalStore }).resumeHook(ApprovalHook, {
+    const resumedOutcome = await new Runtime({ journalStore })
+        .resumeHook(ApprovalHook, {
             runId: "run-123",
             workflow,
             waitId: firstOutcome.suspension.waitId,
@@ -185,7 +184,7 @@ test("waitFor rejects an invalid resolution without journaling it", async ({ jou
                 approvedBy: "Ada"
             }
         })
-    )
+        .waitForOutcome()
 
     expect(resumedOutcome).toEqual({ status: "completed" })
     expect(resolution).toEqual({

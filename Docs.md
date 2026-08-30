@@ -55,6 +55,10 @@ const hookEvents = runtime.resumeHook(ApprovalHook, {
 ```ts
 for await (const event of startEvents) {
     switch (event.type) {
+        case "runtime.started":
+        case "runtime.resumed":
+        case "hook.requested":
+        case "hook.resolved":
         case "step.started":
         case "step.completed":
         case "step.failed":
@@ -70,6 +74,16 @@ for await (const event of startEvents) {
             break
     }
 }
+```
+
+Optionally, if you just want to get the outcome directly, you can use ```.waitForOutcome```.
+
+```ts
+const outcome = runtime.start(Workflow, {
+    runId: "run-123",
+    input: null
+})
+.waitForOutcome()
 ```
 
 Use `getRun()` to read identity metadata for an existing run:

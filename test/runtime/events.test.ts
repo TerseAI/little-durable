@@ -4,8 +4,21 @@ import { z } from "zod"
 
 import { FileJournalStore, Runtime, defineHook, step, waitFor } from "../../src/index.js"
 import { test } from "../fixtures/filesystem.js"
-import { waitForRuntimeOutcome } from "../fixtures/runtime.js"
 import { defineInputlessWorkflow } from "../fixtures/workflow.js"
+
+test("waits for the runtime outcome without manually consuming events", async ({ journalDirectory }) => {
+    const outcome = await new Runtime({ journalStore: new FileJournalStore(journalDirectory) })
+        .start(
+            defineInputlessWorkflow(async () => undefined),
+            {
+                runId: "run-123",
+                input: null
+            }
+        )
+        .waitForOutcome()
+
+    expect(outcome).toEqual({ status: "completed" })
+})
 
 test("streams step lifecycle events and a terminal completion event", async ({ journalDirectory }) => {
     const workflow = defineInputlessWorkflow(async () => {
@@ -82,27 +95,45 @@ test("streams the resumed execution through completion", async ({ journalDirecto
         })
     })
     const runtime = new Runtime({ journalStore: new FileJournalStore(journalDirectory) })
-    const firstOutcome = await waitForRuntimeOutcome(
-        runtime.start(workflow, {
-            runId: "run-123",
-            input: null
-        })
-    )
+    const startEvents = []
+    for await (const event of runtime.start(workflow, {
+        runId: "run-123",
+        input: null
+    })) {
+        startEvents.push(event)
+    }
 
-    if (firstOutcome.status !== "suspended") throw new Error("Expected the workflow to suspend")
+    expect(startEvents.map(event => event.type)).toEqual(["runtime.started", "hook.requested", "runtime.suspended"])
+    expect(startEvents[1]).toMatchObject({
+        type: "hook.requested",
+        runId: "run-123",
+        name: "approval",
+        request: { message: "Ship it?" },
+        requestedAt: expect.any(String)
+    })
+
+    const suspendedEvent = startEvents.at(-1)
+    if (suspendedEvent?.type !== "runtime.suspended") throw new Error("Expected the workflow to suspend")
 
     const events = []
     for await (const event of runtime.resumeHook(ApprovalHook, {
         runId: "run-123",
         workflow,
-        waitId: firstOutcome.suspension.waitId,
+        waitId: suspendedEvent.suspension.waitId,
         resolution: { approved: true }
     })) {
         events.push(event)
     }
 
-    expect(events.map(event => event.type)).toEqual(["runtime.resumed", "step.started", "step.completed", "runtime.completed"])
+    expect(events.map(event => event.type)).toEqual(["hook.resolved", "runtime.resumed", "step.started", "step.completed", "runtime.completed"])
     expect(events[0]).toMatchObject({
+        type: "hook.resolved",
+        runId: "run-123",
+        name: "approval",
+        resolution: { approved: true },
+        resolvedAt: expect.any(String)
+    })
+    expect(events[1]).toMatchObject({
         type: "runtime.resumed",
         runId: "run-123",
         workflowName: "test-workflow",

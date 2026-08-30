@@ -5,7 +5,6 @@ import { z } from "zod"
 import { FileJournalStore, Runtime, defineWorkflow, sleep, step } from "../src/index.js"
 
 import { test } from "./fixtures/filesystem.js"
-import { waitForRuntimeOutcome } from "./fixtures/runtime.js"
 import { defineInputlessWorkflow } from "./fixtures/workflow.js"
 
 test("runs a typed workflow through steps, sleep, and resume", async ({ journalDirectory }) => {
@@ -54,15 +53,15 @@ test("runs a typed workflow through steps, sleep, and resume", async ({ journalD
     const runtime = new Runtime({ journalStore })
     const runId = "run-123"
 
-    const firstOutcome = await waitForRuntimeOutcome(
-        runtime.start(WelcomeWorkflow, {
+    const firstOutcome = await runtime
+        .start(WelcomeWorkflow, {
             runId,
             input: {
                 recipient: "ada@example.com",
                 name: "Ada"
             }
         })
-    )
+        .waitForOutcome()
 
     if (firstOutcome.status !== "suspended") throw new Error("Expected the workflow to be suspended")
     expect(await runtime.getRun({ runId })).toMatchObject({
@@ -73,12 +72,12 @@ test("runs a typed workflow through steps, sleep, and resume", async ({ journalD
 
     await delay(35)
 
-    const resumedOutcome = await waitForRuntimeOutcome(
-        new Runtime({ journalStore }).resumeTimer(WelcomeWorkflow, {
+    const resumedOutcome = await new Runtime({ journalStore })
+        .resumeTimer(WelcomeWorkflow, {
             runId,
             waitId: firstOutcome.suspension.waitId
         })
-    )
+        .waitForOutcome()
 
     expect(resumedOutcome).toEqual({ status: "completed" })
     expect(prepareMessageExecutions).toBe(1)
@@ -117,23 +116,23 @@ test("resumes a workflow without rerunning completed steps", async ({ journalDir
         })
     })
     const journalStore = new FileJournalStore(journalDirectory)
-    const firstOutcome = await waitForRuntimeOutcome(
-        new Runtime({ journalStore }).start(workflow, {
+    const firstOutcome = await new Runtime({ journalStore })
+        .start(workflow, {
             runId: "run-123",
             input: null
         })
-    )
+        .waitForOutcome()
 
     if (firstOutcome.status !== "suspended") throw new Error("Expected the workflow to be suspended")
 
     await delay(35)
 
-    const resumedOutcome = await waitForRuntimeOutcome(
-        new Runtime({ journalStore }).resumeTimer(workflow, {
+    const resumedOutcome = await new Runtime({ journalStore })
+        .resumeTimer(workflow, {
             runId: "run-123",
             waitId: firstOutcome.suspension.waitId
         })
-    )
+        .waitForOutcome()
 
     expect(resumedOutcome).toEqual({ status: "completed" })
     expect(createGreetingExecutions).toBe(1)

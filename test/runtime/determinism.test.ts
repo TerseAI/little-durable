@@ -3,16 +3,15 @@ import { expect } from "vitest"
 
 import { FileJournalStore, Runtime, step } from "../../src/index.js"
 import { test } from "../fixtures/filesystem.js"
-import { waitForRuntimeOutcome } from "../fixtures/runtime.js"
 import { defineInputlessWorkflow } from "../fixtures/workflow.js"
 
 test("workflow time does not advance without a durable boundary", async ({ journalDirectory }) => {
     const workflowTimes: number[] = []
 
-    await waitForRuntimeOutcome(
-        new Runtime({
-            journalStore: new FileJournalStore(journalDirectory)
-        }).start(
+    await new Runtime({
+        journalStore: new FileJournalStore(journalDirectory)
+    })
+        .start(
             defineInputlessWorkflow(async () => {
                 workflowTimes.push(Date.now())
                 await delay(25)
@@ -20,7 +19,7 @@ test("workflow time does not advance without a durable boundary", async ({ journ
             }),
             { runId: "run-123", input: null }
         )
-    )
+        .waitForOutcome()
 
     expect(workflowTimes[1]).toBe(workflowTimes[0])
 })
@@ -30,8 +29,8 @@ test("workflow time advances after a long-running step completes", async ({ jour
     const workflowTimes: number[] = []
     const stepTimes: number[] = []
 
-    await waitForRuntimeOutcome(
-        new Runtime({ journalStore }).start(
+    await new Runtime({ journalStore })
+        .start(
             defineInputlessWorkflow(async () => {
                 workflowTimes.push(Date.now())
 
@@ -50,7 +49,7 @@ test("workflow time advances after a long-running step completes", async ({ jour
             }),
             { runId: "run-123", input: null }
         )
-    )
+        .waitForOutcome()
 
     const [runStartedEvent] = await journalStore.listByType({
         runId: "run-123",

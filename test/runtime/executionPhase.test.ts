@@ -2,16 +2,15 @@ import { expect } from "vitest"
 
 import { FileJournalStore, Runtime, getExecutionPhase, step } from "../../src/index.js"
 import { test } from "../fixtures/filesystem.js"
-import { waitForRuntimeOutcome } from "../fixtures/runtime.js"
 import { defineInputlessWorkflow } from "../fixtures/workflow.js"
 
 test("reports whether code is outside a workflow, orchestrating, or running a step", async ({ journalDirectory }) => {
     const phases: Array<ReturnType<typeof getExecutionPhase>> = [getExecutionPhase()]
 
-    await waitForRuntimeOutcome(
-        new Runtime({
-            journalStore: new FileJournalStore(journalDirectory)
-        }).start(
+    await new Runtime({
+        journalStore: new FileJournalStore(journalDirectory)
+    })
+        .start(
             defineInputlessWorkflow(async () => {
                 phases.push(getExecutionPhase())
 
@@ -26,7 +25,7 @@ test("reports whether code is outside a workflow, orchestrating, or running a st
             }),
             { runId: "run-123", input: null }
         )
-    )
+        .waitForOutcome()
 
     phases.push(getExecutionPhase())
 

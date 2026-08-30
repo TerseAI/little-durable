@@ -3,7 +3,6 @@ import { z } from "zod"
 
 import { FileJournalStore, Runtime, defineHook, defineWorkflow, waitFor } from "../../src/index.js"
 import { test } from "../fixtures/filesystem.js"
-import { waitForRuntimeOutcome } from "../fixtures/runtime.js"
 
 test("a workflow definition restores its typed input from the journal on resume", async ({ journalDirectory }) => {
     const ApprovalHook = defineHook({
@@ -25,23 +24,23 @@ test("a workflow definition restores its typed input from the journal on resume"
     })
     const runtime = new Runtime({ journalStore: new FileJournalStore(journalDirectory) })
 
-    const firstOutcome = await waitForRuntimeOutcome(
-        runtime.start(workflow, {
+    const firstOutcome = await runtime
+        .start(workflow, {
             runId: "run-123",
             input: { occurredAt: "2026-08-26T12:00:00.000Z" }
         })
-    )
+        .waitForOutcome()
 
     if (firstOutcome.status !== "suspended") throw new Error("Expected the workflow to be suspended")
 
-    await waitForRuntimeOutcome(
-        runtime.resumeHook(ApprovalHook, {
+    await runtime
+        .resumeHook(ApprovalHook, {
             runId: "run-123",
             workflow,
             waitId: firstOutcome.suspension.waitId,
             resolution: { approved: true }
         })
-    )
+        .waitForOutcome()
 
     expect(receivedDates).toHaveLength(2)
     expect(receivedDates.every(value => value instanceof Date)).toBe(true)
@@ -58,12 +57,12 @@ test("invalid workflow input is rejected before the run is recorded", async ({ j
     })
 
     await expect(
-        waitForRuntimeOutcome(
-            runtime.start(workflow, {
+        runtime
+            .start(workflow, {
                 runId: "run-123",
                 input: { message: "" }
             })
-        )
+            .waitForOutcome()
     ).rejects.toBeInstanceOf(z.ZodError)
 
     expect(await journalStore.list({ runId: "run-123" })).toEqual([])

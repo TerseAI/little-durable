@@ -21,6 +21,26 @@ export const RuntimeEventSchema = z.discriminatedUnion("type", [
         .strict(),
     z
         .object({
+            type: z.literal("hook.requested"),
+            runId: z.string(),
+            waitId: z.string(),
+            name: z.string(),
+            requestedAt: z.iso.datetime(),
+            request: z.json()
+        })
+        .strict(),
+    z
+        .object({
+            type: z.literal("hook.resolved"),
+            runId: z.string(),
+            waitId: z.string(),
+            name: z.string(),
+            resolvedAt: z.iso.datetime(),
+            resolution: z.json()
+        })
+        .strict(),
+    z
+        .object({
             type: z.literal("step.started"),
             runId: z.string(),
             stepId: z.string(),

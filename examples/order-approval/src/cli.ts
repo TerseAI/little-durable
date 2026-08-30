@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 
 import { FileJournalStore, Runtime } from "little-durable"
-import type { RuntimeEvent, Suspension } from "little-durable"
+import type { JournalEvent, RuntimeEvent, Suspension } from "little-durable"
 
 import { OrderApprovalHook, createOrderApprovalWorkflow } from "./workflows/order-approval.js"
 
@@ -44,8 +44,6 @@ async function startWorkflow(args: readonly string[]): Promise<void> {
         ["Items", "3"],
         ["Total", formatCurrency(totalCents)]
     ])
-    console.log("\nEvents")
-
     const events = runtime.start(workflow, {
         runId,
         input: {
@@ -56,13 +54,13 @@ async function startWorkflow(args: readonly string[]): Promise<void> {
         }
     })
 
-    for await (const event of events) printRuntimeEvent(event)
+    await printRuntimeEventStream(events)
 }
 
 async function resolveApproval(args: readonly string[], approved: boolean): Promise<void> {
     const runId = requireArgument(args[0], "run-id")
     const decidedBy = args[1] ?? "local-reviewer"
-    const suspension = await runtime.getSuspension({ runId })
+    const [suspension, journalEvents] = await Promise.all([runtime.getSuspension({ runId }), journalStore.list({ runId })])
 
     if (!suspension) {
         printHeading("Nothing to resolve")
@@ -73,14 +71,16 @@ async function resolveApproval(args: readonly string[], approved: boolean): Prom
         return
     }
 
-    printHeading(approved ? "Approving order" : "Rejecting order")
-    printDetails([
-        ["Run ID", runId],
-        ["Decision", approved ? "Approve" : "Reject"],
-        ["Reviewer", decidedBy]
-    ])
+    printHeading("Resuming order approval")
+    printDetails([["Run ID", runId]])
+    printJournalHistory(journalEvents)
 
-    console.log("\nEvents")
+    console.log(`\n${color.yellow("──────── Approval received ────────")}`)
+    printDetails([
+        ["Decision", approved ? "Approve" : "Reject"],
+        ["Reviewer", decidedBy],
+        ["Wait ID", suspension.waitId]
+    ])
 
     const events = runtime.resumeHook(OrderApprovalHook, {
         runId,
@@ -89,7 +89,7 @@ async function resolveApproval(args: readonly string[], approved: boolean): Prom
         resolution: { approved, decidedBy }
     })
 
-    for await (const event of events) printRuntimeEvent(event)
+    await printRuntimeEventStream(events, "New runtime event stream")
 }
 
 async function showStatus(args: readonly string[]): Promise<void> {
@@ -114,32 +114,83 @@ async function showJournal(args: readonly string[]): Promise<void> {
     console.log(JSON.stringify(await journalStore.list({ runId }), null, 2))
 }
 
-function printRuntimeEvent(event: RuntimeEvent): void {
+async function printRuntimeEventStream(events: AsyncIterable<RuntimeEvent>, title = "Runtime event stream"): Promise<void> {
+    console.log(`\n${color.bold(title)}`)
+    console.log(color.dim("  #   STEP ID                          EVENT                DETAILS"))
+
+    let index = 0
+    for await (const event of events) printRuntimeEvent(event, ++index)
+}
+
+function printJournalHistory(events: readonly JournalEvent[]): void {
+    console.log(`\n${color.bold("Persisted journal · before approval")}`)
+    console.log(color.dim("  #   STEP ID                          EVENT                DETAILS"))
+
+    events.forEach((event, index) => printJournalEvent(event, index + 1))
+}
+
+function printJournalEvent(event: JournalEvent, index: number): void {
     switch (event.type) {
-        case "runtime.started":
-            console.log(`  ${color.cyan("◇")} ${color.dim("runtime")}  ${event.workflowName} ${color.dim("started")}`)
+        case "run.started":
+            printLedgerRow(index, event.type, event.workflowName, color.cyan)
             return
-        case "runtime.resumed":
-            console.log(`  ${color.cyan("◇")} ${color.dim("runtime")}  ${event.workflowName} ${color.dim("resumed")}`)
+        case "run.completed":
+            printLedgerRow(index, event.type, event.completedAt, color.green)
             return
         case "step.started":
-            console.log(`  ${color.cyan("→")} ${color.dim("step")}     ${event.name}`)
-            return
         case "step.completed":
-            console.log(`  ${color.green("✓")} ${color.dim("step")}     ${event.name} ${color.dim(`(${event.durationMs}ms)`)}`)
+            printLedgerRow(index, event.type, event.name, event.type === "step.started" ? color.cyan : color.green, event.stepId)
             return
         case "step.failed":
-            console.log(`  ${color.red("✗")} ${color.dim("step")}     ${event.name} ${color.dim(`(${event.durationMs}ms):`)} ${color.red(event.error.message)}`)
+            printLedgerRow(index, event.type, `${event.name} · ${event.error.message}`, color.red, event.stepId)
+            return
+        case "wait.requested":
+            printLedgerRow(index, event.type, event.waitId, color.yellow)
+            return
+        case "wait.resolved":
+            printLedgerRow(index, event.type, event.waitId, color.green)
+    }
+}
+
+function printRuntimeEvent(event: RuntimeEvent, index: number): void {
+    switch (event.type) {
+        case "runtime.started":
+            printLedgerRow(index, event.type, event.workflowName, color.cyan)
+            return
+        case "runtime.resumed":
+            printLedgerRow(index, event.type, event.workflowName, color.cyan)
+            return
+        case "hook.requested":
+            printLedgerRow(index, event.type, `${event.name} · waiting for resolution`, color.yellow)
+            return
+        case "hook.resolved":
+            printLedgerRow(index, event.type, `${event.name} · resolution recorded`, color.green)
+            return
+        case "step.started":
+            printLedgerRow(index, event.type, event.name, color.cyan, event.stepId)
+            return
+        case "step.completed":
+            printLedgerRow(index, event.type, `${event.name} · ${formatDuration(event.durationMs)}`, color.green, event.stepId)
+            return
+        case "step.failed":
+            printLedgerRow(index, event.type, `${event.name} · ${formatDuration(event.durationMs)} · ${event.error.message}`, color.red, event.stepId)
             return
         case "runtime.completed":
-            console.log(`  ${color.green("✓")} ${color.dim("runtime")}  completed ${color.dim(`(${event.durationMs}ms)`)}`)
+            printLedgerRow(index, event.type, `${formatDuration(event.durationMs)} total elapsed`, color.green)
             console.log()
             printDetails([["Result", resolve(dataDirectory, "results", `${event.runId}.json`)]])
             return
         case "runtime.suspended":
-            console.log(`  ${color.yellow("⏸")} ${color.dim("runtime")}  suspended`)
+            printLedgerRow(index, event.type, `waiting for ${event.suspension.request.name}`, color.yellow)
             printSuspension(event.runId, event.suspension, false)
     }
+}
+
+function printLedgerRow(index: number, type: JournalEvent["type"] | RuntimeEvent["type"], details: string, paint: (value: string) => string, stepId?: string): void {
+    const number = color.dim(String(index).padStart(2, "0"))
+    const step = color.dim((stepId ?? "").padEnd(32))
+    const eventType = paint(type.padEnd(20))
+    console.log(`  ${number}  ${step} ${eventType} ${details}`)
 }
 
 function printSuspension(runId: string, suspension: Suspension, showHeading = true): void {
@@ -180,6 +231,12 @@ function formatCurrency(totalCents: number): string {
         style: "currency",
         currency: "USD"
     }).format(totalCents / 100)
+}
+
+function formatDuration(durationMs: number): string {
+    if (durationMs < 1000) return `${durationMs}ms`
+    const seconds = durationMs / 1000
+    return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`
 }
 
 const color = {

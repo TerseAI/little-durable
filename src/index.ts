@@ -1,4 +1,5 @@
 export { Runtime } from "./runtime/runtime.js"
+export { RuntimeEventStream } from "./runtime/runtimeEventStream.js"
 export { defineHook } from "./runtime/defineHook.js"
 export { defineWorkflow } from "./runtime/defineWorkflow.js"
 export { sleep } from "./runtime/sleep.js"

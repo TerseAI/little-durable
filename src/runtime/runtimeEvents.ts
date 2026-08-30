@@ -1,3 +1,5 @@
+import { HookRequestEnvelopeSchema } from "../types/hookRequestEnvelope.js"
+import type { HookRequestEnvelope } from "../types/hookRequestEnvelope.js"
 import type { JournalEvent } from "../types/journalEvent.js"
 import type { JournalStore } from "../types/journalStore.js"
 import { RuntimeEventSchema } from "../types/runtimeEvent.js"
@@ -5,9 +7,12 @@ import type { RuntimeEvent } from "../types/runtimeEvent.js"
 import type { Suspension } from "../types/runtimeOutcome.js"
 import { createRunEventId } from "../types/runEventId.js"
 import { createStepEventId } from "../types/stepEventId.js"
+import { createWaitEventId } from "../types/waitEventId.js"
+
+import { RuntimeEventStream } from "./runtimeEventStream.js"
 
 export class RuntimeEvents {
-    readonly stream: ReadableStream<RuntimeEvent>
+    readonly stream: RuntimeEventStream
 
     private readonly context: RuntimeEventContext
     private controller!: ReadableStreamDefaultController<RuntimeEvent>
@@ -17,9 +22,10 @@ export class RuntimeEvents {
         this.context = {
             runId,
             journalStore,
-            stepStartedAt: new Map()
+            stepStartedAt: new Map(),
+            hookRequests: new Map()
         }
-        this.stream = new ReadableStream({
+        this.stream = new RuntimeEventStream({
             start: controller => {
                 this.controller = controller
             },
@@ -123,9 +129,30 @@ async function projectJournalEvent(event: JournalEvent, context: RuntimeEventCon
                 error: event.error
             })
 
-        case "wait.requested":
-        case "wait.resolved":
-            return undefined
+        case "wait.requested": {
+            const request = HookRequestEnvelopeSchema.parse(event.request)
+            context.hookRequests.set(event.waitId, request)
+            return RuntimeEventSchema.parse({
+                type: "hook.requested",
+                runId: context.runId,
+                waitId: event.waitId,
+                name: request.name,
+                requestedAt: event.requestedAt,
+                request: request.payload
+            })
+        }
+
+        case "wait.resolved": {
+            const request = await getHookRequest(event.waitId, context)
+            return RuntimeEventSchema.parse({
+                type: "hook.resolved",
+                runId: context.runId,
+                waitId: event.waitId,
+                name: request.name,
+                resolvedAt: event.resolvedAt,
+                resolution: event.payload
+            })
+        }
 
         default: {
             const exhaustiveCheck: never = event
@@ -159,6 +186,21 @@ async function getStepStartedAt(stepId: string, context: RuntimeEventContext): P
     return Date.parse(event.startedAt)
 }
 
+async function getHookRequest(waitId: string, context: RuntimeEventContext): Promise<HookRequestEnvelope> {
+    const cachedRequest = context.hookRequests.get(waitId)
+    if (cachedRequest) return cachedRequest
+
+    const event = await context.journalStore.get({
+        runId: context.runId,
+        eventId: createWaitEventId({ type: "wait.requested", waitId })
+    })
+
+    if (event?.type !== "wait.requested") throw new Error(`Wait "${waitId}" has no request event`)
+    const request = HookRequestEnvelopeSchema.parse(event.request)
+    context.hookRequests.set(waitId, request)
+    return request
+}
+
 type RuntimeEventsOptions = {
     readonly runId: string
     readonly journalStore: JournalStore
@@ -168,5 +210,6 @@ type RuntimeEventContext = {
     readonly runId: string
     readonly journalStore: JournalStore
     readonly stepStartedAt: Map<string, number>
+    readonly hookRequests: Map<string, HookRequestEnvelope>
     runtimeStartedAt?: number
 }

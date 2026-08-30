@@ -7,7 +7,6 @@ import type { RunCompletedEvent } from "../types/runCompletedEvent.js"
 import { createRunEventId } from "../types/runEventId.js"
 import type { RunMetadata } from "../types/runMetadata.js"
 import type { RunStartedEvent } from "../types/runStartedEvent.js"
-import type { RuntimeEvent } from "../types/runtimeEvent.js"
 import type { RuntimeCompletedOutcome, RuntimeOutcome, RuntimeSuspendedOutcome, Suspension } from "../types/runtimeOutcome.js"
 import { createWaitEventId } from "../types/waitEventId.js"
 import type { WaitRequestedEvent } from "../types/waitRequestedEvent.js"
@@ -18,6 +17,7 @@ import type { WorkflowDefinition } from "./defineWorkflow.js"
 import { DeterministicIdGenerator, createDeterministicRandom } from "./deterministicIdGenerator.js"
 import { ExecutionJournal } from "./executionJournal.js"
 import { RuntimeEvents } from "./runtimeEvents.js"
+import type { RuntimeEventStream } from "./runtimeEventStream.js"
 import { systemNow, toIsoString } from "./systemClock.js"
 import { TimerHook } from "./timerHook.js"
 import type { LogicalClock } from "./workflowContext.js"
@@ -31,7 +31,7 @@ export class Runtime {
         installWorkflowRandom()
     }
 
-    start<InputSchema extends z.ZodType>(workflow: WorkflowDefinition<InputSchema>, options: StartOptions<InputSchema>): ReadableStream<RuntimeEvent> {
+    start<InputSchema extends z.ZodType>(workflow: WorkflowDefinition<InputSchema>, options: StartOptions<InputSchema>): RuntimeEventStream {
         return this.streamExecution(options.runId, execution => this.startExecution(workflow, options, execution))
     }
 
@@ -96,7 +96,7 @@ export class Runtime {
         return undefined
     }
 
-    resume<InputSchema extends z.ZodType>(workflow: WorkflowDefinition<InputSchema>, options: ResumeOptions): ReadableStream<RuntimeEvent> {
+    resume<InputSchema extends z.ZodType>(workflow: WorkflowDefinition<InputSchema>, options: ResumeOptions): RuntimeEventStream {
         return this.streamExecution(options.runId, execution => this.resumeExecution(workflow, options, execution))
     }
 
@@ -129,7 +129,7 @@ export class Runtime {
         })
     }
 
-    resumeHook<Hook extends AnyHookDefinition, InputSchema extends z.ZodType>(hook: Hook, options: ResumeHookOptions<InputSchema, Hook>): ReadableStream<RuntimeEvent> {
+    resumeHook<Hook extends AnyHookDefinition, InputSchema extends z.ZodType>(hook: Hook, options: ResumeHookOptions<InputSchema, Hook>): RuntimeEventStream {
         return this.streamExecution(options.runId, execution => this.resumeHookExecution(hook, options, execution))
     }
 
@@ -171,7 +171,7 @@ export class Runtime {
         )
     }
 
-    resumeTimer<InputSchema extends z.ZodType>(workflow: WorkflowDefinition<InputSchema>, options: ResumeTimerOptions): ReadableStream<RuntimeEvent> {
+    resumeTimer<InputSchema extends z.ZodType>(workflow: WorkflowDefinition<InputSchema>, options: ResumeTimerOptions): RuntimeEventStream {
         return this.streamExecution(options.runId, execution => this.resumeTimerExecution(workflow, options, execution))
     }
 
@@ -329,7 +329,7 @@ export class Runtime {
         }
     }
 
-    private streamExecution(runId: string, execute: (execution: ExecutionResources) => Promise<void>): ReadableStream<RuntimeEvent> {
+    private streamExecution(runId: string, execute: (execution: ExecutionResources) => Promise<void>): RuntimeEventStream {
         const execution = this.createExecution(runId)
 
         void execute(execution).then(

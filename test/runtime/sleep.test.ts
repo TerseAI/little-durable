@@ -3,15 +3,14 @@ import { expect } from "vitest"
 
 import { FileJournalStore, Runtime, sleep } from "../../src/index.js"
 import { test } from "../fixtures/filesystem.js"
-import { waitForRuntimeOutcome } from "../fixtures/runtime.js"
 import { defineInputlessWorkflow } from "../fixtures/workflow.js"
 
 test("sleep suspends a workflow for a human-readable duration", async ({ journalDirectory }) => {
     const journalStore = new FileJournalStore(journalDirectory)
     const execution: string[] = []
 
-    const outcome = await waitForRuntimeOutcome(
-        new Runtime({ journalStore }).start(
+    const outcome = await new Runtime({ journalStore })
+        .start(
             defineInputlessWorkflow(async () => {
                 execution.push("before")
                 await sleep("8h")
@@ -19,7 +18,7 @@ test("sleep suspends a workflow for a human-readable duration", async ({ journal
             }),
             { runId: "run-123", input: null }
         )
-    )
+        .waitForOutcome()
 
     expect(execution).toEqual(["before"])
     if (outcome.status !== "suspended") throw new Error("Expected the workflow to be suspended")
@@ -82,22 +81,22 @@ test("sleep remains suspended when resumed before its wake time", async ({ journ
     })
     const journalStore = new FileJournalStore(journalDirectory)
 
-    const firstOutcome = await waitForRuntimeOutcome(
-        new Runtime({ journalStore }).start(workflow, {
+    const firstOutcome = await new Runtime({ journalStore })
+        .start(workflow, {
             runId: "run-123",
             input: null
         })
-    )
+        .waitForOutcome()
     if (firstOutcome.status !== "suspended") throw new Error("Expected the workflow to be suspended")
 
-    const resumedOutcome = await waitForRuntimeOutcome(
-        new Runtime({
-            journalStore: new FileJournalStore(journalDirectory)
-        }).resumeTimer(workflow, {
+    const resumedOutcome = await new Runtime({
+        journalStore: new FileJournalStore(journalDirectory)
+    })
+        .resumeTimer(workflow, {
             runId: "run-123",
             waitId: firstOutcome.suspension.waitId
         })
-    )
+        .waitForOutcome()
 
     expect(resumedOutcome).toEqual(firstOutcome)
     expect(execution).toEqual(["before", "before"])
@@ -118,33 +117,33 @@ test("sleep completes when resumed after its wake time", async ({ journalDirecto
     })
     const journalStore = new FileJournalStore(journalDirectory)
 
-    const firstOutcome = await waitForRuntimeOutcome(
-        new Runtime({ journalStore }).start(workflow, {
+    const firstOutcome = await new Runtime({ journalStore })
+        .start(workflow, {
             runId: "run-123",
             input: null
         })
-    )
+        .waitForOutcome()
 
     if (firstOutcome.status !== "suspended") throw new Error("Expected the workflow to be suspended")
 
     await delay(75)
 
-    const unresolvedOutcome = await waitForRuntimeOutcome(
-        new Runtime({
-            journalStore: new FileJournalStore(journalDirectory)
-        }).resume(workflow, { runId: "run-123" })
-    )
+    const unresolvedOutcome = await new Runtime({
+        journalStore: new FileJournalStore(journalDirectory)
+    })
+        .resume(workflow, { runId: "run-123" })
+        .waitForOutcome()
 
     expect(unresolvedOutcome).toEqual(firstOutcome)
 
-    const resumedOutcome = await waitForRuntimeOutcome(
-        new Runtime({
-            journalStore: new FileJournalStore(journalDirectory)
-        }).resumeTimer(workflow, {
+    const resumedOutcome = await new Runtime({
+        journalStore: new FileJournalStore(journalDirectory)
+    })
+        .resumeTimer(workflow, {
             runId: "run-123",
             waitId: firstOutcome.suspension.waitId
         })
-    )
+        .waitForOutcome()
 
     expect(resumedOutcome).toEqual({ status: "completed" })
     expect(execution).toEqual(["before", "before", "before", "after"])
