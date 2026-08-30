@@ -213,8 +213,4 @@ Here is a list of the table-stake durability feature that are currently in:
 
 # Documentation
 
-No need for a separate docs website, it's incredibly simple to get started.
-
-```
-hello world example
-```
+Read the [full documentation](./Docs.md).

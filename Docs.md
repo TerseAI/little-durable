@@ -53,24 +53,15 @@ const hookOutcome = await runtime.resumeHook(ApprovalHook, {
 `start()`, `resume()`, `resumeTimer()`, and `resumeHook()` return a `RuntimeOutcome`:
 
 ```ts
-const completedOutcome: RuntimeOutcome = {
-    status: "completed"
-}
+switch (startOutcome.status) {
+    case "completed":
+        console.log("Workflow completed")
+        break
 
-// or
-
-const suspendedOutcome: RuntimeOutcome = {
-    status: "suspended",
-    suspension: {
-        waitId: "wait_01...",
-        request: {
-            type: "hook",
-            name: "timer",
-            payload: {
-                wakeAt: "2026-08-30T12:00:00.000Z"
-            }
-        }
-    }
+    case "suspended":
+        // TypeScript knows suspension exists in this branch.
+        console.log("Workflow suspended", startOutcome.suspension)
+        break
 }
 ```
 
