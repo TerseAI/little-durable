@@ -82,16 +82,18 @@ for await (const event of startEvents) {
 }
 ```
 
-Optionally, if you just want to get the outcome directly, you can use ```.waitForOutcome```.
+Optionally, if you just want to get the outcome directly, you can use `.waitForOutcome`.
 
 ```ts
-const outcome = await runtime.start(workflow, {
-    runId: "run-123",
-    input: {
-        recipient: "ada@example.com",
-        name: "Ada"
-    }
-}).waitForOutcome()
+const outcome = await runtime
+    .start(workflow, {
+        runId: "run-123",
+        input: {
+            recipient: "ada@example.com",
+            name: "Ada"
+        }
+    })
+    .waitForOutcome()
 ```
 
 Use `getRun()` to read identity metadata for an existing run:
@@ -128,7 +130,7 @@ Remember, with FileJournalStore, you need journal data in that path if you plan 
 Workflows just need a name, input schema and a closure.
 
 ```ts
-const broken = defineWorkflow({
+const workflow = defineWorkflow({
     name: "test-workflow",
     input: z.object({
         recipient: z.string(),
@@ -311,7 +313,7 @@ Indeed, this was a frustration of mine with other Workflow systems. What if you 
 With little-durable, this is how you can do it:
 
 ```ts
-const workflow = defineWorkflow({
+const broken = defineWorkflow({
     name: "test-workflow",
     input: z.object({
         recipient: z.string(),
@@ -330,13 +332,15 @@ const workflow = defineWorkflow({
     }
 })
 
-const failedOutcome = await runtime.start(broken, {
-    runId: "run-123",
-    input: {
-        recipient: "ada@example.com",
-        name: "Ada"
-    }
-}).waitForOutcome()
+const failedOutcome = await runtime
+    .start(broken, {
+        runId: "run-123",
+        input: {
+            recipient: "ada@example.com",
+            name: "Ada"
+        }
+    })
+    .waitForOutcome()
 
 if (failedOutcome.status !== "failed") {
     throw new Error("Expected the original workflow to fail")
@@ -363,9 +367,11 @@ const fixed = defineWorkflow({
     }
 })
 
-const outcome = await runtime.resume(fixed, {
-    runId: "run-123" // Notice same runId!
-}).waitForOutcome()
+const outcome = await runtime
+    .resume(fixed, {
+        runId: "run-123" // Notice same runId!
+    })
+    .waitForOutcome()
 
 if (outcome.status === "completed") {
     console.log("Workflow completed")
