@@ -1,0 +1,20 @@
+{
+    "name": "little-durable-order-approval-example",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "test": "npm run build --silent && node --test dist/test/order-approval.test.js",
+        "workflow": "npm run build --silent && node dist/src/cli.js"
+    },
+    "dependencies": {
+        "little-durable": "file:../..",
+        "zod": "^4.3.6"
+    },
+    "devDependencies": {
+        "@types/node": "^24.0.0",
+        "typescript": "5.8.3"
+    }
+}

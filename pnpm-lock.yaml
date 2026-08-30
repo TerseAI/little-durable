@@ -14,9 +14,6 @@ importers:
       ulid:
         specifier: 3.0.2
         version: 3.0.2
-      zod:
-        specifier: ^4.3.6
-        version: 4.5.4
     devDependencies:
       '@types/ms':
         specifier: ^2.1.0
@@ -33,6 +30,9 @@ importers:
       vitest:
         specifier: ^3.2.6
         version: 3.2.7(@types/node@22.20.1)
+      zod:
+        specifier: ^4.3.6
+        version: 4.5.4
 
 packages:
 

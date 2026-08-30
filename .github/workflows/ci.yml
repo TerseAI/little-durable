@@ -19,3 +19,7 @@ jobs:
                   node-version: 22
             - run: pnpm install
             - run: pnpm check
+            - run: npm ci
+              working-directory: examples/order-approval
+            - run: npm test
+              working-directory: examples/order-approval

@@ -214,3 +214,7 @@ Here is a list of the table-stake durability feature that are currently in:
 # Documentation
 
 Read the [full documentation](./Docs.md).
+
+# Example project
+
+See the runnable [order approval workflow](./examples/order-approval), which demonstrates durable steps, typed hooks, filesystem journaling, process-independent resume, and replay safety.
