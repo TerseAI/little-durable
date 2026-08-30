@@ -6,15 +6,6 @@ import type { StepStartedEvent } from "../types/stepStartedEvent.js"
 import { systemNow, toIsoString } from "./systemClock.js"
 import { getWorkflowContext, runWithStepContext } from "./workflowContext.js"
 
-// The event input field is the journal's canonical JSON value type.
-type CanonicalValue = StepStartedEvent["input"]
-
-export type StepParams<Input extends CanonicalValue, Output extends CanonicalValue> = {
-    readonly name: string
-    readonly input: Input
-    readonly run: (input: Input) => Output | Promise<Output>
-}
-
 export async function step<Input extends CanonicalValue, Output extends CanonicalValue>({ name, input, run }: StepParams<Input, Output>): Promise<Output> {
     const context = getWorkflowContext()
 
@@ -93,4 +84,13 @@ export async function step<Input extends CanonicalValue, Output extends Canonica
     context.logicalClock.advanceTo(completedAt)
 
     return value
+}
+
+// The event input field is the journal's canonical JSON value type.
+type CanonicalValue = StepStartedEvent["input"]
+
+export type StepParams<Input extends CanonicalValue, Output extends CanonicalValue> = {
+    readonly name: string
+    readonly input: Input
+    readonly run: (input: Input) => Output | Promise<Output>
 }

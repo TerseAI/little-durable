@@ -1,19 +1,6 @@
 import { createHash } from "node:crypto"
 import { monotonicFactory } from "ulid"
 
-export type DeterministicIdNamespace = "hook" | "step" | "wait"
-
-export type DeterministicIdGeneratorOptions = {
-    readonly seed: string
-    readonly timestamp: number
-}
-
-export type NextDeterministicIdParams = {
-    readonly namespace: DeterministicIdNamespace
-}
-
-const maximumUlidTimestamp = 2 ** 48 - 1
-
 export class DeterministicIdGenerator {
     private readonly generators = new Map<DeterministicIdNamespace, ReturnType<typeof monotonicFactory>>()
 
@@ -43,4 +30,17 @@ export function createDeterministicRandom(seed: string): () => number {
         counter += 1
         return value / 2 ** 32
     }
+}
+
+const maximumUlidTimestamp = 2 ** 48 - 1
+
+export type DeterministicIdNamespace = "hook" | "step" | "wait"
+
+export type DeterministicIdGeneratorOptions = {
+    readonly seed: string
+    readonly timestamp: number
+}
+
+export type NextDeterministicIdParams = {
+    readonly namespace: DeterministicIdNamespace
 }

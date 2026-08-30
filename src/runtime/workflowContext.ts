@@ -5,33 +5,6 @@ import type { Suspension } from "../types/runtimeOutcome.js"
 
 import type { DeterministicIdGenerator } from "./deterministicIdGenerator.js"
 
-export type LogicalClock = {
-    readonly now: () => number
-    readonly advanceTo: (timestamp: number) => void
-}
-
-export type ExecutionPhase = "step" | "workflow"
-
-export type WorkflowContext = {
-    readonly runId: string
-    readonly journalStore: JournalStore
-    readonly idGenerator: DeterministicIdGenerator
-    readonly suspend: (suspension: Suspension) => void
-    readonly logicalClock: LogicalClock
-    readonly random: () => number
-    readonly phase: ExecutionPhase
-}
-
-const WORKFLOW_CONTEXT_KEY = Symbol.for("little-durable/workflow-context")
-type DurableGlobal = typeof globalThis & {
-    [key: symbol]: AsyncLocalStorage<WorkflowContext> | undefined
-}
-const durableGlobal = globalThis as DurableGlobal
-
-function workflowContext(): AsyncLocalStorage<WorkflowContext> {
-    return (durableGlobal[WORKFLOW_CONTEXT_KEY] ??= new AsyncLocalStorage<WorkflowContext>())
-}
-
 export function getWorkflowContext(): WorkflowContext {
     const context = getOptionalWorkflowContext()
 
@@ -57,4 +30,32 @@ export function runWithWorkflowContext<Output>(context: WorkflowContext, run: ()
 export function runWithStepContext<Output>(run: () => Output): Output {
     const context = getWorkflowContext()
     return workflowContext().run({ ...context, phase: "step" }, run)
+}
+
+function workflowContext(): AsyncLocalStorage<WorkflowContext> {
+    return (durableGlobal[WORKFLOW_CONTEXT_KEY] ??= new AsyncLocalStorage<WorkflowContext>())
+}
+
+const WORKFLOW_CONTEXT_KEY = Symbol.for("little-durable/workflow-context")
+const durableGlobal = globalThis as DurableGlobal
+
+export type LogicalClock = {
+    readonly now: () => number
+    readonly advanceTo: (timestamp: number) => void
+}
+
+export type ExecutionPhase = "step" | "workflow"
+
+export type WorkflowContext = {
+    readonly runId: string
+    readonly journalStore: JournalStore
+    readonly idGenerator: DeterministicIdGenerator
+    readonly suspend: (suspension: Suspension) => void
+    readonly logicalClock: LogicalClock
+    readonly random: () => number
+    readonly phase: ExecutionPhase
+}
+
+type DurableGlobal = typeof globalThis & {
+    [key: symbol]: AsyncLocalStorage<WorkflowContext> | undefined
 }

@@ -1,6 +1,8 @@
 import { getOptionalWorkflowContext } from "./workflowContext.js"
 
-const nativeRandom = Math.random
+export function installWorkflowRandom(): void {
+    if (Math.random !== workflowRandom) Math.random = workflowRandom
+}
 
 function workflowRandom(): number {
     const context = getOptionalWorkflowContext()
@@ -9,6 +11,4 @@ function workflowRandom(): number {
     return context.random()
 }
 
-export function installWorkflowRandom(): void {
-    if (Math.random !== workflowRandom) Math.random = workflowRandom
-}
+const nativeRandom = Math.random

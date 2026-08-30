@@ -9,15 +9,11 @@ export const SuspensionSchema = z
     })
     .strict()
 
-export type Suspension = z.infer<typeof SuspensionSchema>
-
 export const RuntimeCompletedOutcomeSchema = z
     .object({
         status: z.literal("completed")
     })
     .strict()
-
-export type RuntimeCompletedOutcome = z.infer<typeof RuntimeCompletedOutcomeSchema>
 
 export const RuntimeSuspendedOutcomeSchema = z
     .object({
@@ -26,8 +22,9 @@ export const RuntimeSuspendedOutcomeSchema = z
     })
     .strict()
 
-export type RuntimeSuspendedOutcome = z.infer<typeof RuntimeSuspendedOutcomeSchema>
-
 export const RuntimeOutcomeSchema = z.discriminatedUnion("status", [RuntimeCompletedOutcomeSchema, RuntimeSuspendedOutcomeSchema])
 
+export type Suspension = z.infer<typeof SuspensionSchema>
+export type RuntimeCompletedOutcome = z.infer<typeof RuntimeCompletedOutcomeSchema>
+export type RuntimeSuspendedOutcome = z.infer<typeof RuntimeSuspendedOutcomeSchema>
 export type RuntimeOutcome = z.infer<typeof RuntimeOutcomeSchema>

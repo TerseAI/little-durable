@@ -22,53 +22,6 @@ import { runWithWorkflowContext } from "./workflowContext.js"
 import { installWorkflowDate } from "./workflowDate.js"
 import { installWorkflowRandom } from "./workflowRandom.js"
 
-export type RuntimeOptions = {
-    readonly journalStore: JournalStore
-}
-
-export type GetRunParams = {
-    readonly runId: string
-}
-
-export type GetSuspensionParams = {
-    readonly runId: string
-}
-
-export type StartOptions<InputSchema extends z.ZodType> = {
-    readonly runId: string
-    readonly input: z.input<InputSchema>
-}
-
-export type ResumeOptions = {
-    readonly runId: string
-    readonly event?: ResumeEvent
-}
-
-export type ResumeEvent = {
-    readonly type: "wait.resolved"
-    readonly waitId: string
-    readonly payload: WaitResolvedEvent["payload"]
-}
-
-export type ResumeHookOptions<InputSchema extends z.ZodType, Hook extends AnyHookDefinition> = {
-    readonly runId: string
-    readonly workflow: WorkflowDefinition<InputSchema>
-    readonly waitId: string
-    readonly resolution: HookResolutionInput<Hook>
-}
-
-export type ResumeTimerOptions = {
-    readonly runId: string
-    readonly waitId: string
-}
-
-type ExecuteParams<InputSchema extends z.ZodType> = {
-    readonly runId: string
-    readonly input: z.infer<typeof z.json>
-    readonly workflow: WorkflowDefinition<InputSchema>
-    readonly startedAt: number
-}
-
 export class Runtime {
     constructor(private readonly options: RuntimeOptions) {
         installWorkflowDate()
@@ -345,11 +298,6 @@ function createLogicalClock(initialTimestamp: number): LogicalClock {
     }
 }
 
-type SuspensionSignal = {
-    readonly promise: Promise<Suspension>
-    readonly suspend: (suspension: Suspension) => void
-}
-
 function createSuspensionSignal(): SuspensionSignal {
     let resolveSuspension: (suspension: Suspension) => void = () => undefined
     let suspended = false
@@ -365,4 +313,56 @@ function createSuspensionSignal(): SuspensionSignal {
             resolveSuspension(suspension)
         }
     }
+}
+
+export type RuntimeOptions = {
+    readonly journalStore: JournalStore
+}
+
+export type GetRunParams = {
+    readonly runId: string
+}
+
+export type GetSuspensionParams = {
+    readonly runId: string
+}
+
+export type StartOptions<InputSchema extends z.ZodType> = {
+    readonly runId: string
+    readonly input: z.input<InputSchema>
+}
+
+export type ResumeOptions = {
+    readonly runId: string
+    readonly event?: ResumeEvent
+}
+
+export type ResumeEvent = {
+    readonly type: "wait.resolved"
+    readonly waitId: string
+    readonly payload: WaitResolvedEvent["payload"]
+}
+
+export type ResumeHookOptions<InputSchema extends z.ZodType, Hook extends AnyHookDefinition> = {
+    readonly runId: string
+    readonly workflow: WorkflowDefinition<InputSchema>
+    readonly waitId: string
+    readonly resolution: HookResolutionInput<Hook>
+}
+
+export type ResumeTimerOptions = {
+    readonly runId: string
+    readonly waitId: string
+}
+
+type ExecuteParams<InputSchema extends z.ZodType> = {
+    readonly runId: string
+    readonly input: z.infer<typeof z.json>
+    readonly workflow: WorkflowDefinition<InputSchema>
+    readonly startedAt: number
+}
+
+type SuspensionSignal = {
+    readonly promise: Promise<Suspension>
+    readonly suspend: (suspension: Suspension) => void
 }

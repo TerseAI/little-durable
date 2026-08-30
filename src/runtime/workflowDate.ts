@@ -1,6 +1,10 @@
 import { NativeDate } from "./systemClock.js"
 import { getOptionalWorkflowContext } from "./workflowContext.js"
 
+export function installWorkflowDate(): void {
+    if (globalThis.Date !== WorkflowDate) globalThis.Date = WorkflowDate
+}
+
 const WorkflowDate = function Date(this: unknown, ...args: unknown[]): Date | string {
     const timestamp = currentTimestamp()
 
@@ -16,10 +20,6 @@ Object.setPrototypeOf(WorkflowDate, NativeDate)
 Object.defineProperty(WorkflowDate, "now", {
     value: currentTimestamp
 })
-
-export function installWorkflowDate(): void {
-    if (globalThis.Date !== WorkflowDate) globalThis.Date = WorkflowDate
-}
 
 function currentTimestamp(): number {
     const context = getOptionalWorkflowContext()

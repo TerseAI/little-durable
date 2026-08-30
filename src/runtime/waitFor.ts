@@ -10,9 +10,6 @@ import type { AnyHookDefinition, HookRequest, HookResolution } from "./defineHoo
 import { systemNow, toIsoString } from "./systemClock.js"
 import { getWorkflowContext } from "./workflowContext.js"
 
-// The event payload field is the journal's canonical JSON value type.
-type CanonicalPayload = WaitResolvedEvent["payload"]
-
 export async function waitFor<Hook extends AnyHookDefinition>(hook: Hook, request: HookRequest<Hook>): Promise<HookResolution<Hook>>
 export async function waitFor(hook: AnyHookDefinition, request: unknown): Promise<unknown> {
     const parsedRequest = hook.request.parse(request)
@@ -26,10 +23,6 @@ export async function waitFor(hook: AnyHookDefinition, request: unknown): Promis
     })
 
     return hook.resolution.parse(resolution)
-}
-
-type WaitForRequestParams<Request extends HookRequestEnvelope> = {
-    readonly request: Request
 }
 
 async function waitForRequest<Request extends HookRequestEnvelope, Payload extends CanonicalPayload = CanonicalPayload>({ request }: WaitForRequestParams<Request>): Promise<Payload> {
@@ -76,4 +69,11 @@ async function waitForRequest<Request extends HookRequestEnvelope, Payload exten
     })
 
     return new Promise<never>(() => undefined)
+}
+
+// The event payload field is the journal's canonical JSON value type.
+type CanonicalPayload = WaitResolvedEvent["payload"]
+
+type WaitForRequestParams<Request extends HookRequestEnvelope> = {
+    readonly request: Request
 }

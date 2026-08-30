@@ -1,5 +1,13 @@
 import type { z } from "zod"
 
+export function defineHook<RequestSchema extends z.ZodObject, ResolutionSchema extends z.ZodObject>(
+    definition: DefineHookParams<RequestSchema, ResolutionSchema>
+): HookDefinition<RequestSchema, ResolutionSchema> {
+    if (definition.name.trim().length === 0) throw new TypeError("Hook name cannot be empty")
+
+    return definition
+}
+
 export type HookDefinition<RequestSchema extends z.ZodObject, ResolutionSchema extends z.ZodObject> = Readonly<{
     name: string
     request: RequestSchema
@@ -15,11 +23,3 @@ export type HookResolution<Hook extends AnyHookDefinition> = z.output<Hook["reso
 export type HookResolutionInput<Hook extends AnyHookDefinition> = z.input<Hook["resolution"]>
 
 export type DefineHookParams<RequestSchema extends z.ZodObject, ResolutionSchema extends z.ZodObject> = HookDefinition<RequestSchema, ResolutionSchema>
-
-export function defineHook<RequestSchema extends z.ZodObject, ResolutionSchema extends z.ZodObject>(
-    definition: DefineHookParams<RequestSchema, ResolutionSchema>
-): HookDefinition<RequestSchema, ResolutionSchema> {
-    if (definition.name.trim().length === 0) throw new TypeError("Hook name cannot be empty")
-
-    return definition
-}
