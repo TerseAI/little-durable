@@ -19,7 +19,7 @@ export { WaitResolvedEventSchema } from "./waitResolvedEvent.js"
 
 export type { HookRequestEnvelope } from "./hookRequestEnvelope.js"
 export type { JournalEvent } from "./journalEvent.js"
-export type { AppendJournalEventParams, GetJournalEventParams, JournalStore, ListJournalEventsByTypeParams, ListJournalEventsParams } from "./journalStore.js"
+export type { AppendJournalEventParams, GetJournalEventParams, JournalStore, ListJournalEventsByTypeParams, ListJournalEventsParams, PopJournalStepParams } from "./journalStore.js"
 export type { RuntimeCompletedOutcome, RuntimeError, RuntimeFailedOutcome, RuntimeOutcome, RuntimeSuspendedOutcome, Suspension } from "./runtimeOutcome.js"
 export type { RuntimeEvent } from "./runtimeEvent.js"
 export type { RunCompletedEvent } from "./runCompletedEvent.js"

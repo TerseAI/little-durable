@@ -32,6 +32,7 @@ test("does not observe an event when the append fails", async ({ journalDirector
         get: params => fileJournalStore.get(params),
         list: params => fileJournalStore.list(params),
         listByType: params => fileJournalStore.listByType(params),
+        popStep: params => fileJournalStore.popStep(params),
         append: async () => {
             throw appendError
         }

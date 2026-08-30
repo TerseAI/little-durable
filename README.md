@@ -112,6 +112,7 @@ export interface JournalStore {
     listByType(params: ListJournalEventsByTypeParams): Promise<readonly JournalEvent[]>
     get(params: GetJournalEventParams): Promise<JournalEvent | undefined>
     append(params: AppendJournalEventParams): Promise<JournalEvent>
+    popStep(params: PopJournalStepParams): Promise<void>
 }
 ```
 

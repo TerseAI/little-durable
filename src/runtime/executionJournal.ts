@@ -1,5 +1,5 @@
 import type { JournalEvent } from "../types/journalEvent.js"
-import type { AppendJournalEventParams, GetJournalEventParams, JournalStore, ListJournalEventsByTypeParams, ListJournalEventsParams } from "../types/journalStore.js"
+import type { AppendJournalEventParams, GetJournalEventParams, JournalStore, ListJournalEventsByTypeParams, ListJournalEventsParams, PopJournalStepParams } from "../types/journalStore.js"
 
 export class ExecutionJournal implements JournalStore {
     constructor(private readonly options: ExecutionJournalOptions) {}
@@ -20,6 +20,10 @@ export class ExecutionJournal implements JournalStore {
         const event = await this.options.store.append(params)
         await this.options.runtimeEvents.observe(event)
         return event
+    }
+
+    popStep(params: PopJournalStepParams): Promise<void> {
+        return this.options.store.popStep(params)
     }
 }
 

@@ -5,6 +5,7 @@ export interface JournalStore {
     listByType(params: ListJournalEventsByTypeParams): Promise<readonly JournalEvent[]>
     get(params: GetJournalEventParams): Promise<JournalEvent | undefined>
     append(params: AppendJournalEventParams): Promise<JournalEvent>
+    popStep(params: PopJournalStepParams): Promise<void>
 }
 
 export type ListJournalEventsParams = {
@@ -24,4 +25,9 @@ export type GetJournalEventParams = {
 export type AppendJournalEventParams = {
     readonly runId: string
     readonly event: unknown
+}
+
+export type PopJournalStepParams = {
+    readonly runId: string
+    readonly stepId: string
 }

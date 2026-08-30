@@ -103,6 +103,7 @@ test("resuming an interrupted step does not record another step started event", 
         list: params => fileJournalStore.list(params),
         listByType: params => fileJournalStore.listByType(params),
         get: params => fileJournalStore.get(params),
+        popStep: params => fileJournalStore.popStep(params),
         append: async params => {
             const event = JournalEventSchema.parse(params.event)
             if (event.type === "step.completed" && interruptCompletionWrite) {
@@ -406,6 +407,7 @@ test("does not execute the workflow when recording its start fails", async () =>
         list: async () => [],
         listByType: async () => [],
         get: async () => undefined,
+        popStep: async () => undefined,
         append: async () => {
             throw journalError
         }

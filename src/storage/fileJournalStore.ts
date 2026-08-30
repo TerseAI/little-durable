@@ -1,9 +1,9 @@
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { JournalEventSchema } from "../types/journalEvent.js"
 import type { JournalEvent } from "../types/journalEvent.js"
-import type { AppendJournalEventParams, GetJournalEventParams, JournalStore, ListJournalEventsByTypeParams, ListJournalEventsParams } from "../types/journalStore.js"
+import type { AppendJournalEventParams, GetJournalEventParams, JournalStore, ListJournalEventsByTypeParams, ListJournalEventsParams, PopJournalStepParams } from "../types/journalStore.js"
 
 export class FileJournalStore implements JournalStore {
     constructor(private readonly rootDirectory: string) {}
@@ -43,6 +43,31 @@ export class FileJournalStore implements JournalStore {
             flag: "wx"
         })
         return validatedEvent
+    }
+
+    async popStep({ runId, stepId }: PopJournalStepParams): Promise<void> {
+        const runDirectory = this.runDirectoryFor(runId)
+        const filenames = (await readJournalDirectory(runDirectory)).sort()
+        const tail: Array<{ readonly event: JournalEvent; readonly filename: string }> = []
+
+        for (const filename of filenames.slice().reverse()) {
+            const source = await readFile(join(runDirectory, filename), "utf8")
+            const event = JournalEventSchema.parse(JSON.parse(source) as unknown)
+            if (!("stepId" in event) || event.stepId !== stepId) break
+            tail.push({ event, filename })
+        }
+
+        const events = tail
+            .slice()
+            .reverse()
+            .map(entry => entry.event)
+        const [startedEvent, ...followingEvents] = events
+
+        if (startedEvent?.type !== "step.started" || followingEvents.some(event => event.type !== "step.failed")) {
+            throw new Error(`Step "${stepId}" is not an incomplete step at the journal tail`)
+        }
+
+        for (const { filename } of tail) await unlink(join(runDirectory, filename))
     }
 
     private runDirectoryFor(runId: string): string {

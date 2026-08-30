@@ -29,7 +29,9 @@ const startEvents = runtime.start(workflow, {
     }
 })
 
-// Replay an interrupted run without resolving a wait
+// Replay an interrupted run without resolving a wait.
+// This will pop a failed/incomplete step so the workflow can "try again".
+// This supports swapping out the actual code of the workflow as well!
 const resumeEvents = runtime.resume(workflow, { runId })
 
 // Resume a timer
@@ -50,7 +52,7 @@ const hookEvents = runtime.resumeHook(ApprovalHook, {
 })
 ```
 
-`start()`, `resume()`, `resumeTimer()`, and `resumeHook()` return a `ReadableStream<RuntimeEvent>`. Every execution attempt has the same event-driven interface:
+`start()`, `resume()`, `resumeTimer()`, and `resumeHook()` return a `RuntimeEventStream`, which extends `ReadableStream<RuntimeEvent>`. Every execution attempt has the same event-driven interface:
 
 ```ts
 for await (const event of startEvents) {
@@ -72,6 +74,10 @@ for await (const event of startEvents) {
         case "runtime.completed":
             console.log("Workflow completed")
             break
+
+        case "runtime.failed":
+            console.error("Workflow failed", event.error)
+            break
     }
 }
 ```
@@ -79,11 +85,13 @@ for await (const event of startEvents) {
 Optionally, if you just want to get the outcome directly, you can use ```.waitForOutcome```.
 
 ```ts
-const outcome = runtime.start(Workflow, {
+const outcome = await runtime.start(workflow, {
     runId: "run-123",
-    input: null
-})
-.waitForOutcome()
+    input: {
+        recipient: "ada@example.com",
+        name: "Ada"
+    }
+}).waitForOutcome()
 ```
 
 Use `getRun()` to read identity metadata for an existing run:
@@ -120,7 +128,7 @@ Remember, with FileJournalStore, you need journal data in that path if you plan 
 Workflows just need a name, input schema and a closure.
 
 ```ts
-const workflow = defineWorkflow({
+const broken = defineWorkflow({
     name: "test-workflow",
     input: z.object({
         recipient: z.string(),
@@ -287,8 +295,79 @@ const DeploymentWorkflow = defineWorkflow({
 
 > Note: You need to handle how this communicates with slack here! More on this in the next section
 
-## How to Interact With Control Plane
+## Hot Swapping Failing Workflows
 
-This project is BYOCP (Bring your own control plane, yes I just invented that).
+The astute reader may have paused at:
 
-It can be tempting to want to a loop structure here like:
+```ts
+// Replay an interrupted run without resolving a wait.
+// This will pop a failed/incomplete step so the workflow can "try again".
+// This supports swapping out the actual code of the workflow as well!
+const resumeEvents = runtime.resume(workflow, { runId })
+```
+
+Indeed, this was a frustration of mine with other Workflow systems. What if you find a bug and want to change the code then retry?
+
+With little-durable, this is how you can do it:
+
+```ts
+const workflow = defineWorkflow({
+    name: "test-workflow",
+    input: z.object({
+        recipient: z.string(),
+        name: z.string()
+    }),
+    run: async input => {
+        const message = await step({
+            name: "prepare-message",
+            input: {
+                name: input.name
+            },
+            run: async ({ name }) => {
+                throw new Error("Broken")
+            }
+        })
+    }
+})
+
+const failedOutcome = await runtime.start(broken, {
+    runId: "run-123",
+    input: {
+        recipient: "ada@example.com",
+        name: "Ada"
+    }
+}).waitForOutcome()
+
+if (failedOutcome.status !== "failed") {
+    throw new Error("Expected the original workflow to fail")
+}
+
+const fixed = defineWorkflow({
+    name: "test-workflow", // notice same name!
+    input: z.object({
+        recipient: z.string(),
+        name: z.string()
+    }),
+    run: async input => {
+        const message = await step({
+            name: "prepare-message",
+            input: {
+                name: input.name
+            },
+            run: async ({ name }) => {
+                return `Welcome, ${name}!`
+            }
+        })
+
+        console.log(message)
+    }
+})
+
+const outcome = await runtime.resume(fixed, {
+    runId: "run-123" // Notice same runId!
+}).waitForOutcome()
+
+if (outcome.status === "completed") {
+    console.log("Workflow completed")
+}
+```

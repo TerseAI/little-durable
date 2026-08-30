@@ -162,6 +162,7 @@ test("does not replay when recording a resolution fails", async ({ journalDirect
         list: params => journalStore.list(params),
         listByType: params => journalStore.listByType(params),
         get: params => journalStore.get(params),
+        popStep: params => journalStore.popStep(params),
         append: async params => {
             const event = JournalEventSchema.parse(params.event)
             if (event.type === "wait.resolved") throw journalError

@@ -16,6 +16,7 @@ import type { AnyHookDefinition, HookResolutionInput } from "./defineHook.js"
 import type { WorkflowDefinition } from "./defineWorkflow.js"
 import { DeterministicIdGenerator, createDeterministicRandom } from "./deterministicIdGenerator.js"
 import { ExecutionJournal } from "./executionJournal.js"
+import { getIncompleteTailStep } from "./journalTail.js"
 import { RuntimeEvents } from "./runtimeEvents.js"
 import type { RuntimeEventStream } from "./runtimeEventStream.js"
 import { systemNow, toIsoString } from "./systemClock.js"
@@ -115,6 +116,14 @@ export class Runtime {
         if (completedEvent?.type === "run.completed") {
             await execution.runtimeEvents.observe(completedEvent)
             return
+        }
+
+        const incompleteStep = getIncompleteTailStep(await execution.journal.list({ runId }))
+        if (incompleteStep) {
+            await execution.journal.popStep({
+                runId,
+                stepId: incompleteStep.stepId
+            })
         }
 
         if (event) await this.appendResumeEvent({ runId, event, journal: execution.journal })
