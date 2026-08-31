@@ -4,7 +4,7 @@
 
 This is a durable workflow SDK. What does this mean?
 
-Durable Workflows are **functions** that are broken up into **steps**. Each step is an idempotent chunk of work that has a a serializable input and output.
+Durable Workflows are **functions** that are broken up into **steps**. Each step is an idempotent chunk of work that has a serializable input and output.
 
 After each step runs, we write both input and output to a **journal**. In the event a step fails (say, because github is down... again), you resume the run and it will hit the journal cache for the steps that completed successfully, thus resuming real work at the point it failed.
 
