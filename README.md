@@ -20,6 +20,8 @@ Little Durable requires Node.js 20 or newer. Install it with Zod:
 npm install little-durable zod
 ```
 
+See the [example project](./examples/order-approval) to see a real working implementation of little-durable.
+
 # Why Does this Exist?
 
 I built this because I wanted to run durable functions on Sandboxes. This meant coupling the state of the filesystem with the durable journal.
