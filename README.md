@@ -8,7 +8,7 @@
 
 This is an extremely light-weight, runtime and storage agnostic, malleable, Durable Workflow runtime.
 
-Little Durable is BYOCP (bring your own control plane, yes I just made that up).
+Little Durable is BYOCP (bring your own control plane, yes I just made that up), BYOC, and BYOS(torage).
 
 This project was build entirely with the TDD + AI approach. Everything started with tests, and everything is heavily unit tested.
 
