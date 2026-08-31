@@ -1,5 +1,7 @@
+import { readdir } from "node:fs/promises"
 import { resolve } from "node:path"
 
+import * as p from "@clack/prompts"
 import { FileJournalStore, Runtime } from "little-durable"
 import type { JournalEvent, RuntimeEvent, Suspension, WorkflowDefinition } from "little-durable"
 import { z } from "zod"
@@ -11,6 +13,18 @@ async function main(args: readonly string[]): Promise<void> {
     const [command, ...commandArgs] = args
 
     switch (command) {
+        case "run":
+            await runWorkflow(commandArgs)
+            return
+        case "runs":
+            await showRuns()
+            return
+        case "inspect":
+            await inspectRun(commandArgs)
+            return
+        case "workflows":
+            showWorkflows()
+            return
         case "start":
             await startOrderApproval(commandArgs)
             return
@@ -33,17 +47,77 @@ async function main(args: readonly string[]): Promise<void> {
             await showJournal(commandArgs)
             return
         case "help":
-        case undefined:
             showHelp()
+            return
+        case undefined:
+            if (isInteractive) await openControlPlane()
+            else showHelp()
             return
         default:
             throw new UsageError(`Unknown command: ${command}`)
     }
 }
 
+async function openControlPlane(): Promise<void> {
+    p.intro(`${color.bold("Little Durable")} ${color.dim("· local control plane")}`)
+
+    while (true) {
+        const runs = await listRunSummaries()
+        const suspendedRunCount = runs.filter(run => run.suspension !== undefined).length
+        const action = unwrapPrompt(
+            await p.select<ControlPlaneAction>({
+                message: "What would you like to do?",
+                options: [
+                    { value: "run", label: "Run a workflow", hint: `${workflowCatalog.length} available` },
+                    { value: "runs", label: "Inspect a run", hint: runs.length === 0 ? "no runs yet" : `${runs.length} available`, disabled: runs.length === 0 },
+                    {
+                        value: "resume",
+                        label: "Resume a suspended run",
+                        hint: suspendedRunCount === 0 ? "none waiting" : `${suspendedRunCount} waiting`,
+                        disabled: suspendedRunCount === 0
+                    },
+                    { value: "workflows", label: "View workflows", hint: "registered in this worker" },
+                    { value: "exit", label: "Exit" }
+                ]
+            })
+        )
+
+        switch (action) {
+            case "run":
+                await runWorkflow([])
+                break
+            case "runs":
+                await inspectRun([])
+                break
+            case "resume":
+                await resumeWorkflow([])
+                break
+            case "workflows":
+                showWorkflows()
+                break
+            case "exit":
+                p.outro("Control plane stopped")
+                return
+        }
+    }
+}
+
+async function runWorkflow(args: readonly string[]): Promise<void> {
+    const requestedWorkflowName = args[0]
+    const workflowName = requestedWorkflowName ? parseWorkflowName(requestedWorkflowName) : await promptForWorkflow()
+
+    switch (workflowName) {
+        case "order-approval":
+            await startOrderApproval(args.slice(1))
+            return
+        case "delayed-order-follow-up":
+            await startDelayedFollowUp(args.slice(1))
+    }
+}
+
 async function startOrderApproval(args: readonly string[]): Promise<void> {
-    const runId = args[0] ?? "order-run-001"
-    const totalCents = parsePositiveInteger(args[1] ?? "12500", "total-cents")
+    const runId = args[0] ?? (isInteractive ? await promptForRunId("order") : "order-1001")
+    const totalCents = args[1] ? parsePositiveInteger(args[1], "total-cents") : isInteractive ? await promptForPositiveInteger("What is the order total in cents?", "12500", "Order total") : 12500
 
     printHeading("Starting order approval")
     printDetails([
@@ -62,12 +136,16 @@ async function startOrderApproval(args: readonly string[]): Promise<void> {
         }
     })
 
-    await printRuntimeEventStream(events)
+    const terminalEvent = await printRuntimeEventStream(events, "Runtime event stream", { showNextAction: !isInteractive })
+
+    if (terminalEvent?.type === "runtime.suspended" && terminalEvent.suspension.request.name === OrderApprovalHook.name && isInteractive) {
+        await promptForApproval(runId, terminalEvent.suspension, { showJournal: false })
+    }
 }
 
 async function startDelayedFollowUp(args: readonly string[]): Promise<void> {
-    const runId = args[0] ?? "follow-up-run-001"
-    const delayMs = parsePositiveInteger(args[1] ?? "3000", "delay-ms")
+    const runId = args[0] ?? (isInteractive ? await promptForRunId("follow-up") : "follow-up-1001")
+    const delayMs = args[1] ? parsePositiveInteger(args[1], "delay-ms") : isInteractive ? await promptForPositiveInteger("How long should the workflow sleep in milliseconds?", "3000", "Delay") : 3000
 
     printHeading("Starting delayed order follow-up")
     printDetails([
@@ -94,7 +172,7 @@ async function startDelayedFollowUp(args: readonly string[]): Promise<void> {
     await resumeWorkflow([runId])
 }
 
-async function resolveApproval(args: readonly string[], approved: boolean): Promise<void> {
+async function resolveApproval(args: readonly string[], approved: boolean, { showJournal = true }: ResolveApprovalOptions = {}): Promise<void> {
     const runId = requireArgument(args[0], "run-id")
     const decidedBy = args[1] ?? "local-reviewer"
     const [registeredWorkflow, suspension, journalEvents] = await Promise.all([resolveWorkflow(runId), runtime.getSuspension({ runId }), journalStore.list({ runId })])
@@ -112,9 +190,9 @@ async function resolveApproval(args: readonly string[], approved: boolean): Prom
         return
     }
 
-    printHeading("Resuming order approval")
+    printHeading(approved ? "Approving order" : "Rejecting order")
     printDetails([["Run ID", runId]])
-    printJournalHistory(journalEvents)
+    if (showJournal) printJournalHistory(journalEvents)
 
     console.log(`\n${color.yellow("──────── Approval received ────────")}`)
     printDetails([
@@ -134,7 +212,7 @@ async function resolveApproval(args: readonly string[], approved: boolean): Prom
 }
 
 async function resumeWorkflow(args: readonly string[]): Promise<void> {
-    const runId = requireArgument(args[0], "run-id")
+    const runId = args[0] ?? (isInteractive ? await promptForRun({ suspendedOnly: true }) : requireArgument(args[0], "run-id"))
     const [registeredWorkflow, suspension, journalEvents] = await Promise.all([resolveWorkflow(runId), runtime.getSuspension({ runId }), journalStore.list({ runId })])
 
     if (!suspension) {
@@ -147,8 +225,16 @@ async function resumeWorkflow(args: readonly string[]): Promise<void> {
         return
     }
 
+    if (suspension.request.name === OrderApprovalHook.name) {
+        if (isInteractive) {
+            await promptForApproval(runId, suspension)
+            return
+        }
+        throw new UsageError(`Run ${runId} needs an approval; use "approve ${runId}" or "reject ${runId}"`)
+    }
+
     if (suspension.request.name !== "timer") {
-        throw new UsageError(`Run ${runId} is waiting for hook "${suspension.request.name}"; use its hook-specific command instead`)
+        throw new UsageError(`Run ${runId} is waiting for unsupported hook "${suspension.request.name}"`)
     }
 
     const timer = TimerRequestSchema.parse(suspension.request.payload)
@@ -162,7 +248,23 @@ async function resumeWorkflow(args: readonly string[]): Promise<void> {
             ["Wake at", timer.wakeAt],
             ["Remaining", formatDuration(remainingMs)]
         ])
-        return
+
+        if (isInteractive) {
+            const action = unwrapPrompt(
+                await p.select<"wait" | "later">({
+                    message: "How should the control plane handle this timer?",
+                    options: [
+                        { value: "wait", label: "Wait and resume", hint: formatDuration(remainingMs) },
+                        { value: "later", label: "Leave it sleeping", hint: "resume from another process" }
+                    ]
+                })
+            )
+
+            if (action === "wait") await waitForTimer(runId, timer.wakeAt)
+            else return
+        } else {
+            return
+        }
     }
 
     printHeading("Resuming delayed workflow")
@@ -186,8 +288,8 @@ async function resumeWorkflow(args: readonly string[]): Promise<void> {
     await printRuntimeEventStream(events, "New runtime event stream")
 }
 
-async function showStatus(args: readonly string[]): Promise<void> {
-    const runId = requireArgument(args[0], "run-id")
+async function showStatus(args: readonly string[], { showNextAction = true }: ShowStatusOptions = {}): Promise<void> {
+    const runId = args[0] ?? (isInteractive ? await promptForRun() : requireArgument(args[0], "run-id"))
     const [run, suspension, events] = await Promise.all([runtime.getRun({ runId }), runtime.getSuspension({ runId }), journalStore.list({ runId })])
     const status = suspension
         ? suspension.request.name === "timer"
@@ -206,12 +308,231 @@ async function showStatus(args: readonly string[]): Promise<void> {
         ["Journal events", String(events.length)]
     ])
 
-    if (suspension) printSuspension(runId, suspension)
+    if (suspension) printSuspension(runId, suspension, true, showNextAction)
 }
 
 async function showJournal(args: readonly string[]): Promise<void> {
-    const runId = requireArgument(args[0], "run-id")
-    console.log(JSON.stringify(await journalStore.list({ runId }), null, 2))
+    const runId = args[0] ?? (isInteractive ? await promptForRun() : requireArgument(args[0], "run-id"))
+    const events = await journalStore.list({ runId })
+
+    if (args.includes("--json")) {
+        console.log(JSON.stringify(events, null, 2))
+        return
+    }
+
+    printJournalHistory(events, `Journal · ${runId}`)
+}
+
+async function inspectRun(args: readonly string[]): Promise<void> {
+    const runId = args[0] ?? (isInteractive ? await promptForRun() : requireArgument(args[0], "run-id"))
+    await showStatus([runId], { showNextAction: false })
+
+    if (!isInteractive) return
+
+    const suspension = await runtime.getSuspension({ runId })
+    const action = unwrapPrompt(
+        await p.select<RunAction>({
+            message: "What would you like to do with this run?",
+            options: [
+                { value: "journal", label: "Inspect journal", hint: "durable event history" },
+                ...(suspension ? [{ value: "resume" as const, label: "Resume run", hint: describeSuspension(suspension) }] : []),
+                { value: "back", label: "Back" }
+            ]
+        })
+    )
+
+    if (action === "journal") await showJournal([runId])
+    if (action === "resume") await resumeWorkflow([runId])
+}
+
+async function showRuns(): Promise<void> {
+    const runs = await listRunSummaries()
+    printHeading(`Runs · ${runs.length}`)
+
+    if (runs.length === 0) {
+        console.log(color.dim(`  No runs yet. Start one with: ${formatCliCommand("run")}`))
+        return
+    }
+
+    console.log(color.dim("  RUN ID                         WORKFLOW                       STATUS"))
+    for (const run of runs) {
+        console.log(`  ${run.runId.padEnd(30)} ${run.workflowName.padEnd(30)} ${paintRunStatus(run)}`)
+    }
+}
+
+function showWorkflows(): void {
+    printHeading(`Available workflows · ${workflowCatalog.length}`)
+    for (const workflow of workflowCatalog) {
+        console.log(`  ${color.cyan(workflow.name)}`)
+        console.log(`    ${workflow.description}`)
+        console.log(color.dim(`    Suspends on ${workflow.suspendsOn}`))
+        console.log(color.dim(`    ${formatCliCommand(workflow.usage)}`))
+    }
+}
+
+async function promptForWorkflow(): Promise<WorkflowName> {
+    requireInteractive("Choose a workflow by passing its name after the run command")
+    return unwrapPrompt(
+        await p.select<WorkflowName>({
+            message: "Which workflow should run?",
+            options: workflowCatalog.map(workflow => ({
+                value: workflow.name,
+                label: workflow.label,
+                hint: workflow.promptHint
+            }))
+        })
+    )
+}
+
+async function promptForRun({ suspendedOnly = false }: PromptForRunOptions = {}): Promise<string> {
+    requireInteractive("Choose a run by passing its run ID")
+    const runs = await listRunSummaries()
+    const choices = suspendedOnly ? runs.filter(run => run.suspension !== undefined) : runs
+
+    if (choices.length === 0) {
+        throw new UsageError(suspendedOnly ? "There are no suspended runs to resume" : "There are no runs to inspect")
+    }
+
+    return unwrapPrompt(
+        await p.autocomplete<string>({
+            message: suspendedOnly ? "Which suspended run should resume?" : "Which run should open?",
+            placeholder: "Type a run ID…",
+            maxItems: 8,
+            options: choices.map(run => ({
+                value: run.runId,
+                label: run.runId,
+                hint: `${run.workflowName} · ${describeRunStatus(run)}`
+            }))
+        })
+    )
+}
+
+async function promptForRunId(prefix: "order" | "follow-up"): Promise<string> {
+    const runIds = new Set(await listRunIds())
+    const suggestion = suggestRunId(prefix, runIds)
+    return unwrapPrompt(
+        await p.text({
+            message: "Choose a run ID",
+            initialValue: suggestion,
+            placeholder: suggestion,
+            validate: value => {
+                if (!value || !/^[A-Za-z0-9_-]+$/.test(value)) return "Use letters, numbers, dashes, or underscores"
+                if (runIds.has(value)) return `Run ${value} already exists`
+            }
+        })
+    )
+}
+
+async function promptForPositiveInteger(message: string, defaultValue: string, label: string): Promise<number> {
+    const value = unwrapPrompt(
+        await p.text({
+            message,
+            initialValue: defaultValue,
+            placeholder: defaultValue,
+            validate: value => {
+                const parsed = Number(value)
+                if (!Number.isSafeInteger(parsed) || parsed <= 0) return `${label} must be a positive integer`
+            }
+        })
+    )
+    return parsePositiveInteger(value, label)
+}
+
+async function promptForApproval(runId: string, suspension: Suspension, { showJournal = true }: ResolveApprovalOptions = {}): Promise<void> {
+    if (suspension.request.name !== OrderApprovalHook.name) throw new Error(`Wait ${suspension.waitId} is not an order approval`)
+
+    if (showJournal) printJournalHistory(await journalStore.list({ runId }), "Persisted journal · awaiting approval")
+
+    const request = OrderApprovalHook.request.parse(suspension.request.payload)
+    if (showJournal) {
+        p.note([`Run       ${runId}`, `Order     ${request.orderId}`, `Summary   ${request.summary}`, `Total     ${formatCurrency(request.totalCents)}`].join("\n"), "Approval requested")
+    }
+
+    const decision = unwrapPrompt(
+        await p.select<ApprovalDecision>({
+            message: "How should this order proceed?",
+            options: [
+                { value: "approve", label: "Approve order", hint: "continue the workflow" },
+                { value: "reject", label: "Reject order", hint: "record the rejection" },
+                { value: "later", label: "Leave pending", hint: "resume from another process" }
+            ]
+        })
+    )
+
+    if (decision === "later") {
+        p.log.info(`Approval left pending · ${formatCliCommand(`resume ${runId}`)}`)
+        return
+    }
+
+    const reviewer = unwrapPrompt(
+        await p.text({
+            message: "Who reviewed this order?",
+            initialValue: "Grace",
+            placeholder: "Grace",
+            validate: value => (!value || value.trim().length === 0 ? "Reviewer is required" : undefined)
+        })
+    )
+
+    await resolveApproval([runId, reviewer], decision === "approve", { showJournal: false })
+}
+
+async function listRunSummaries(): Promise<readonly RunSummary[]> {
+    const runIds = await listRunIds()
+    const runs = await Promise.all(
+        runIds.map(async runId => {
+            const [run, suspension, events] = await Promise.all([runtime.getRun({ runId }), runtime.getSuspension({ runId }), journalStore.list({ runId })])
+            return {
+                ...run,
+                suspension,
+                eventCount: events.length,
+                completed: events.some(event => event.type === "run.completed")
+            }
+        })
+    )
+
+    return runs.sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+}
+
+async function listRunIds(): Promise<readonly string[]> {
+    try {
+        const entries = await readdir(journalDirectory, { withFileTypes: true })
+        return entries.filter(entry => entry.isDirectory()).map(entry => entry.name)
+    } catch (error) {
+        if (isNodeError(error) && error.code === "ENOENT") return []
+        throw error
+    }
+}
+
+function suggestRunId(prefix: "order" | "follow-up", runIds: ReadonlySet<string>): string {
+    for (let index = 1001; ; index++) {
+        const candidate = `${prefix}-${index}`
+        if (!runIds.has(candidate)) return candidate
+    }
+}
+
+function describeRunStatus(run: RunSummary): string {
+    if (run.suspension?.request.name === "timer") {
+        const timer = TimerRequestSchema.parse(run.suspension.request.payload)
+        const remainingMs = Date.parse(timer.wakeAt) - Date.now()
+        return remainingMs > 0 ? `Sleeping · ${formatDuration(remainingMs)} remaining` : "Ready to resume"
+    }
+    if (run.suspension) return `Waiting for ${run.suspension.request.name}`
+    if (run.completed) return "Completed"
+    return "Running"
+}
+
+function describeSuspension(suspension: Suspension): string {
+    if (suspension.request.name !== "timer") return `waiting for ${suspension.request.name}`
+    const timer = TimerRequestSchema.parse(suspension.request.payload)
+    const remainingMs = Date.parse(timer.wakeAt) - Date.now()
+    return remainingMs > 0 ? `${formatDuration(remainingMs)} remaining` : "timer ready"
+}
+
+function paintRunStatus(run: RunSummary): string {
+    const status = describeRunStatus(run)
+    if (run.completed) return color.green(status)
+    if (run.suspension) return color.yellow(status)
+    return color.cyan(status)
 }
 
 async function printRuntimeEventStream(
@@ -256,7 +577,7 @@ function printJournalEvent(event: JournalEvent, index: number): void {
             printLedgerRow(index, event.type, `${event.name} · ${event.error.message}`, color.red, event.stepId)
             return
         case "wait.requested":
-            printLedgerRow(index, event.type, event.waitId, color.yellow)
+            printLedgerRow(index, event.type, `${getJournalRequestName(event.request)} · ${event.waitId}`, color.yellow)
             return
         case "wait.resolved":
             printLedgerRow(index, event.type, event.waitId, color.green)
@@ -318,8 +639,8 @@ function printSuspension(runId: string, suspension: Suspension, showHeading = tr
         ])
         if (showNextAction) {
             console.log("\nNext")
-            console.log(`  npm run workflow -- approve ${runId} Grace`)
-            console.log(`  npm run workflow -- reject ${runId} Grace`)
+            console.log(`  ${formatCliCommand(`approve ${runId} Grace`)}`)
+            console.log(`  ${formatCliCommand(`reject ${runId} Grace`)}`)
         }
         return
     }
@@ -333,7 +654,7 @@ function printSuspension(runId: string, suspension: Suspension, showHeading = tr
 
         if (showNextAction) {
             console.log("\nNext")
-            console.log(`  npm run workflow -- resume ${runId}`)
+            console.log(`  ${formatCliCommand(`resume ${runId}`)}`)
         }
         return
     }
@@ -360,6 +681,11 @@ function formatCurrency(totalCents: number): string {
     }).format(totalCents / 100)
 }
 
+function getJournalRequestName(request: unknown): string {
+    const parsed = HookRequestSummarySchema.safeParse(request)
+    return parsed.success ? parsed.data.name : "hook"
+}
+
 function formatDuration(durationMs: number): string {
     if (durationMs < 1000) return `${durationMs}ms`
     const seconds = durationMs / 1000
@@ -370,7 +696,7 @@ async function waitForTimer(runId: string, wakeAt: string): Promise<void> {
     const waitMs = Math.max(0, Date.parse(wakeAt) - Date.now())
 
     printHeading(`Waiting ${formatDuration(waitMs)} for timer`)
-    console.log(color.dim(`  Safe to stop · resume later with: npm run workflow -- resume ${runId}`))
+    console.log(color.dim(`  Safe to stop · resume later with: ${formatCliCommand(`resume ${runId}`)}`))
 
     if (!process.stdout.isTTY) {
         await new Promise(resolve => setTimeout(resolve, waitMs))
@@ -378,16 +704,14 @@ async function waitForTimer(runId: string, wakeAt: string): Promise<void> {
         return
     }
 
-    const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    let frameIndex = 0
+    const spinner = p.spinner()
     const render = () => {
         const remainingMs = Math.max(0, Date.parse(wakeAt) - Date.now())
-        const frame = color.cyan(frames[frameIndex++ % frames.length] ?? "⠋")
-        process.stdout.write(`\r\u001B[2K  ${frame} ${formatDuration(remainingMs)} remaining`)
+        spinner.message(`${formatDuration(remainingMs)} remaining`)
     }
 
-    render()
-    const animation = setInterval(render, 80)
+    spinner.start(`${formatDuration(waitMs)} remaining`)
+    const animation = setInterval(render, 100)
 
     try {
         await new Promise(resolve => setTimeout(resolve, waitMs))
@@ -395,11 +719,37 @@ async function waitForTimer(runId: string, wakeAt: string): Promise<void> {
         clearInterval(animation)
     }
 
-    process.stdout.write(`\r\u001B[2K  ${color.green("✓")} Timer elapsed\n`)
+    spinner.stop("Timer elapsed · resuming workflow")
 }
 
 type PrintRuntimeEventStreamOptions = {
     readonly showNextAction?: boolean
+}
+
+type ResolveApprovalOptions = {
+    readonly showJournal?: boolean
+}
+
+type PromptForRunOptions = {
+    readonly suspendedOnly?: boolean
+}
+
+type ShowStatusOptions = {
+    readonly showNextAction?: boolean
+}
+
+type WorkflowName = "order-approval" | "delayed-order-follow-up"
+type ControlPlaneAction = "run" | "runs" | "resume" | "workflows" | "exit"
+type RunAction = "journal" | "resume" | "back"
+type ApprovalDecision = "approve" | "reject" | "later"
+
+type RunSummary = {
+    readonly runId: string
+    readonly workflowName: string
+    readonly startedAt: string
+    readonly suspension: Suspension | undefined
+    readonly eventCount: number
+    readonly completed: boolean
 }
 
 const color = {
@@ -421,30 +771,52 @@ function requireArgument(value: string | undefined, name: string): string {
     throw new UsageError(`Missing required argument: ${name}`)
 }
 
+function requireInteractive(recovery: string): void {
+    if (isInteractive) return
+    throw new UsageError(`${recovery}; prompts require an interactive terminal`)
+}
+
+function unwrapPrompt<Value>(value: Value | symbol): Value {
+    if (!p.isCancel(value)) return value as Value
+    p.cancel("No changes made")
+    throw new PromptCancelledError()
+}
+
+function parseWorkflowName(value: string): WorkflowName {
+    if (workflowsByName.has(value)) return value as WorkflowName
+    throw new UsageError(`Unknown workflow: ${value}. Run "${formatCliCommand("workflows")}" to see what is available`)
+}
+
 function parsePositiveInteger(value: string, name: string): number {
     const parsed = Number(value)
     if (Number.isSafeInteger(parsed) && parsed > 0) return parsed
     throw new UsageError(`${name} must be a positive integer`)
 }
 
+function formatCliCommand(args?: string): string {
+    return `npm run --silent workflow${args ? ` -- ${args}` : ""}`
+}
+
 function showHelp(): void {
-    console.log(`Little Durable · Workflow demo
+    console.log(`${color.bold("Little Durable")} ${color.dim("· local control plane")}
 
 Usage
-  npm run workflow -- <command>
+  npm run --silent workflow
+  npm run --silent workflow -- <command>
 
 Commands
-  start [run-id] [total-cents]     Start an order and wait for approval
-  start-follow-up [run-id] [ms]    Start an order follow-up that sleeps
-  resume <run-id>                  Recover and resume an interrupted timer run
-  approve <run-id> [reviewer]      Approve a suspended order
-  reject <run-id> [reviewer]       Reject a suspended order
-  status <run-id>                  Show the current run status
-  journal <run-id>                 Print the durable event journal
+  run [workflow] [run-id] [value]  Run a workflow; prompts when omitted
+  workflows                        List registered workflows
+  runs                             List persisted runs
+  inspect [run-id]                 Open a run's status and actions
+  resume [run-id]                  Resume a timer or approval
+  approve <run-id> [reviewer]      Approve a suspended order directly
+  reject <run-id> [reviewer]       Reject a suspended order directly
+  status [run-id]                  Show run status
+  journal [run-id] [--json]        Inspect the durable event journal
 
-Try it
-  npm run workflow -- start order-1001 12500
-  npm run workflow -- start-follow-up follow-up-1001 3000`)
+Start here
+  npm run --silent workflow`)
 }
 
 class UsageError extends Error {
@@ -454,8 +826,11 @@ class UsageError extends Error {
     }
 }
 
+class PromptCancelledError extends Error {}
+
 const dataDirectory = resolve(process.env.DURABLE_SAMPLE_DATA_DIR ?? ".data")
-const journalStore = new FileJournalStore(resolve(dataDirectory, "journals"))
+const journalDirectory = resolve(dataDirectory, "journals")
+const journalStore = new FileJournalStore(journalDirectory)
 const runtime = new Runtime({ journalStore })
 const orderApprovalWorkflow = createOrderApprovalWorkflow({
     resultDirectory: resolve(dataDirectory, "results")
@@ -467,7 +842,34 @@ const workflowsByName = new Map<string, WorkflowDefinition>([
     [orderApprovalWorkflow.name, orderApprovalWorkflow],
     [delayedOrderFollowUpWorkflow.name, delayedOrderFollowUpWorkflow]
 ])
+const workflowCatalog = [
+    {
+        name: "order-approval",
+        label: "Order approval",
+        description: "Prepare an order, then ask a reviewer to approve or reject it",
+        promptHint: "waits for a human decision",
+        suspendsOn: "an approval hook",
+        usage: "run order-approval [run-id] [total-cents]"
+    },
+    {
+        name: "delayed-order-follow-up",
+        label: "Delayed order follow-up",
+        description: "Schedule a customer follow-up, sleep, then send it",
+        promptHint: "waits on a durable timer",
+        suspendsOn: "a durable timer",
+        usage: "run delayed-order-follow-up [run-id] [delay-ms]"
+    }
+] as const satisfies readonly {
+    readonly name: WorkflowName
+    readonly label: string
+    readonly description: string
+    readonly promptHint: string
+    readonly suspendsOn: string
+    readonly usage: string
+}[]
 const TimerRequestSchema = z.object({ wakeAt: z.iso.datetime() }).strict()
+const HookRequestSummarySchema = z.object({ name: z.string() }).passthrough()
+const isInteractive = Boolean(process.stdin.isTTY && process.stdout.isTTY)
 
 async function resolveWorkflow(runId: string): Promise<WorkflowDefinition> {
     const run = await runtime.getRun({ runId })
@@ -480,7 +882,14 @@ async function resolveWorkflow(runId: string): Promise<WorkflowDefinition> {
 try {
     await main(process.argv.slice(2))
 } catch (error) {
-    console.error(`\n✗ ${error instanceof Error ? error.message : String(error)}`)
-    if (error instanceof UsageError) showHelp()
-    process.exitCode = 1
+    if (error instanceof PromptCancelledError) process.exitCode = 0
+    else {
+        console.error(`\n✗ ${error instanceof Error ? error.message : String(error)}`)
+        if (error instanceof UsageError) showHelp()
+        process.exitCode = 1
+    }
+}
+
+function isNodeError(value: unknown): value is NodeJS.ErrnoException {
+    return value instanceof Error && "code" in value
 }

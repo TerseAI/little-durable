@@ -10,6 +10,7 @@
         "workflow": "npm run build --silent && node dist/src/cli.js"
     },
     "dependencies": {
+        "@clack/prompts": "^1.7.0",
         "little-durable": "file:../..",
         "zod": "^4.3.6"
     },
