@@ -1,4 +1,4 @@
-# Little Durable
+# Little Durable - A durable execution runtime for TypeScript in just 33 kB
 
 [![npm](https://img.shields.io/npm/v/little-durable)](https://www.npmjs.com/package/little-durable)
 [![CI](https://github.com/TerseAI/little-durable/actions/workflows/ci.yml/badge.svg)](https://github.com/TerseAI/little-durable/actions/workflows/ci.yml)
@@ -6,7 +6,7 @@
 [![Documentation](https://img.shields.io/badge/docs-read-4B5563)](./Docs.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
-This is an extremely light-weight, runtime and storage agnostic, malleable, Durable Workflow runtime.
+This is an extremely light-weight (33kb!), runtime and storage agnostic, malleable, Durable Workflow runtime.
 
 Little Durable is BYOCP (bring your own control plane, yes I just made that up), BYOC, and BYOS(torage).
 
@@ -34,7 +34,7 @@ So I made this!
 
 Some key features:
 
-- Insanely lightweight: The only dependencies are ulid and ms.
+- Insanely lightweight: 32.7 kB packed, 44.6 kB compiled JavaScript, 2 runtime dependencies (ms and ulid)
 - Storage agnostic: Journal can be Postgres, File System, Durable Object etc...
 - Runtime agnostic: Runs anywhere you can import this npm package
 - Type safety: Type safety enforced everywhere with Zod enforcing serialization safety in the Journal interactions.
