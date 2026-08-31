@@ -25,6 +25,7 @@
     "files": [
         "dist",
         "README.md",
+        "Docs.md",
         "LICENSE"
     ],
     "publishConfig": {

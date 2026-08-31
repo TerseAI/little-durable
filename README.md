@@ -12,6 +12,14 @@ Little Durable is BYOCP (bring your own control plane, yes I just made that up).
 
 This project was build entirely with the TDD + AI approach. Everything started with tests, and everything is heavily unit tested.
 
+# Installation
+
+Little Durable requires Node.js 20 or newer. Install it with Zod:
+
+```bash
+npm install little-durable zod
+```
+
 # Why Does this Exist?
 
 I built this because I wanted to run durable functions on Sandboxes. This meant coupling the state of the filesystem with the durable journal.

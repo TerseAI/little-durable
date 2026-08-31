@@ -71,6 +71,10 @@ export class FileJournalStore implements JournalStore {
     }
 
     private runDirectoryFor(runId: string): string {
+        if (runId.length === 0 || runId === "." || runId === ".." || runId.includes("/") || runId.includes("\\") || runId.includes("\0")) {
+            throw new TypeError("Run ID must be a non-empty path segment")
+        }
+
         return join(this.rootDirectory, runId)
     }
 }

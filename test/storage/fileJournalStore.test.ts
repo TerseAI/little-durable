@@ -55,6 +55,16 @@ test("keeps journals for different runs isolated", async ({ journalDirectory }) 
     expect(await journalStore.list({ runId: "run-2" })).toEqual([secondRunEvent])
 })
 
+test("rejects run IDs that are not a single path segment", async ({ journalDirectory }) => {
+    const journalStore = new FileJournalStore(journalDirectory)
+
+    for (const runId of ["", ".", "..", "../escaped", "nested/run", "nested\\run"]) {
+        await expect(journalStore.list({ runId })).rejects.toThrow("Run ID must be a non-empty path segment")
+    }
+
+    expect(await readdir(journalDirectory)).toEqual([])
+})
+
 test("rejects an invalid event before writing it", async ({ journalDirectory }) => {
     const journalStore = new FileJournalStore(journalDirectory)
 

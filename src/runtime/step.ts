@@ -17,6 +17,19 @@ export async function step<Input extends CanonicalValue, Output extends Canonica
     })
 
     if (existingCompletedEvent?.type === "step.completed") {
+        const existingStartedEvent = await context.journalStore.get({
+            runId: context.runId,
+            eventId: createStepEventId({ type: "step.started", stepId })
+        })
+
+        if (existingStartedEvent?.type !== "step.started") {
+            throw new Error(`Step "${stepId}" completed without a matching step.started event`)
+        }
+
+        if (existingStartedEvent.name !== name) {
+            throw new Error(`Step "${stepId}" was previously recorded as "${existingStartedEvent.name}", not "${name}"`)
+        }
+
         return existingCompletedEvent.output as Output
     }
 
