@@ -1,6 +1,6 @@
 {
     "name": "little-durable",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "description": "A lightweight durable workflow runtime for TypeScript.",
     "type": "module",
     "license": "MIT",
