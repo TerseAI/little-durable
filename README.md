@@ -5,6 +5,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5%2B-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Documentation](https://img.shields.io/badge/docs-read-4B5563)](./Docs.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
+[![Slack](https://img.shields.io/badge/Slack-Join%20Community-4A154B?logo=slack&logoColor=white)](https://join.slack.com/t/tersecommunity/shared_invite/zt-3y01ap0bn-VvOqz~iJW0LbJ0cTqWuAIQ)
 
 This is an extremely light-weight (33kb!), runtime and storage agnostic, malleable, Durable Workflow runtime.
 
@@ -246,3 +247,7 @@ Read the [full documentation](./Docs.md).
 # Example project
 
 See the runnable [order approval workflow](./examples/order-approval), which demonstrates durable steps, typed hooks, filesystem journaling, process-independent resume, and replay safety.
+
+# Community
+
+[Join the Terse Slack community](https://join.slack.com/t/tersecommunity/shared_invite/zt-3y01ap0bn-VvOqz~iJW0LbJ0cTqWuAIQ) to ask questions, share feedback, and show us what you build.

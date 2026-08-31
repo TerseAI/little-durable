@@ -4,6 +4,7 @@
     "private": true,
     "type": "module",
     "scripts": {
+        "prebuild": "npm --prefix ../.. run build",
         "build": "tsc -p tsconfig.json",
         "typecheck": "tsc -p tsconfig.json --noEmit",
         "test": "npm run build --silent && node --test dist/test/order-approval.test.js",

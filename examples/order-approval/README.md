@@ -8,17 +8,18 @@ It contains three workflows:
 - Delayed order followup: shows how sleep() works and can be handled in the control plane.
 - Order Fulfillment: shows a failed step recovering with resume() without repeating completed work.
 
-To use, simply clone little-durable, then cd into the folder
+## Run
+
+From the repository root:
 
 ```bash
+pnpm install
 cd examples/order-approval
-```
-
-From there we have a very interactive prompt that should explain itself to you.
-
-```bash
+npm install
 npm run workflow
 ```
+
+The sample automatically builds the linked root package first.
 
 To run the failure recovery story directly:
 
