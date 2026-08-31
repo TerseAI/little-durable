@@ -8,6 +8,7 @@ import { z } from "zod"
 
 import { createDelayedOrderFollowUpWorkflow } from "./workflows/delayed-order-follow-up.js"
 import { OrderApprovalHook, createOrderApprovalWorkflow } from "./workflows/order-approval.js"
+import { createOrderFulfillmentWorkflow } from "./workflows/order-fulfillment.js"
 
 async function main(args: readonly string[]): Promise<void> {
     const [command, ...commandArgs] = args
@@ -61,45 +62,45 @@ async function main(args: readonly string[]): Promise<void> {
 async function openControlPlane(): Promise<void> {
     p.intro(`${color.bold("Little Durable")} ${color.dim("· local control plane")}`)
 
-    while (true) {
-        const runs = await listRunSummaries()
-        const suspendedRunCount = runs.filter(run => run.suspension !== undefined).length
-        const action = unwrapPrompt(
-            await p.select<ControlPlaneAction>({
-                message: "What would you like to do?",
-                options: [
-                    { value: "run", label: "Run a workflow", hint: `${workflowCatalog.length} available` },
-                    { value: "runs", label: "Inspect a run", hint: runs.length === 0 ? "no runs yet" : `${runs.length} available`, disabled: runs.length === 0 },
-                    {
-                        value: "resume",
-                        label: "Resume a suspended run",
-                        hint: suspendedRunCount === 0 ? "none waiting" : `${suspendedRunCount} waiting`,
-                        disabled: suspendedRunCount === 0
-                    },
-                    { value: "workflows", label: "View workflows", hint: "registered in this worker" },
-                    { value: "exit", label: "Exit" }
-                ]
-            })
-        )
+    const runs = await listRunSummaries()
+    const resumableRunCount = runs.filter(isResumableRun).length
+    const action = unwrapPrompt(
+        await p.select<ControlPlaneAction>({
+            message: "What would you like to do?",
+            options: [
+                { value: "run", label: "Run a workflow", hint: `${workflowCatalog.length} available` },
+                { value: "runs", label: "Inspect a run", hint: runs.length === 0 ? "no runs yet" : `${runs.length} available`, disabled: runs.length === 0 },
+                {
+                    value: "resume",
+                    label: "Resume a run",
+                    hint: resumableRunCount === 0 ? "nothing recoverable" : `${resumableRunCount} recoverable`,
+                    disabled: resumableRunCount === 0
+                },
+                { value: "workflows", label: "View workflows", hint: "registered in this worker" },
+                { value: "exit", label: "Exit" }
+            ]
+        })
+    )
 
-        switch (action) {
-            case "run":
-                await runWorkflow([])
-                break
-            case "runs":
-                await inspectRun([])
-                break
-            case "resume":
-                await resumeWorkflow([])
-                break
-            case "workflows":
-                showWorkflows()
-                break
-            case "exit":
-                p.outro("Control plane stopped")
-                return
-        }
+    switch (action) {
+        case "run":
+            await runWorkflow([])
+            break
+        case "runs":
+            await inspectRun([])
+            break
+        case "resume":
+            await resumeWorkflow([])
+            break
+        case "workflows":
+            showWorkflows()
+            break
+        case "exit":
+            p.outro("Control plane stopped")
+            return
     }
+
+    p.outro(process.exitCode ? "Run failed · resume when ready" : "Session complete")
 }
 
 async function runWorkflow(args: readonly string[]): Promise<void> {
@@ -112,6 +113,9 @@ async function runWorkflow(args: readonly string[]): Promise<void> {
             return
         case "delayed-order-follow-up":
             await startDelayedFollowUp(args.slice(1))
+            return
+        case "order-fulfillment":
+            await startOrderFulfillment(args.slice(1))
     }
 }
 
@@ -137,6 +141,11 @@ async function startOrderApproval(args: readonly string[]): Promise<void> {
     })
 
     const terminalEvent = await printRuntimeEventStream(events, "Runtime event stream", { showNextAction: !isInteractive })
+
+    if (terminalEvent?.type === "runtime.failed") {
+        await printFailureRecovery(runId, terminalEvent)
+        return
+    }
 
     if (terminalEvent?.type === "runtime.suspended" && terminalEvent.suspension.request.name === OrderApprovalHook.name && isInteractive) {
         await promptForApproval(runId, terminalEvent.suspension, { showJournal: false })
@@ -165,11 +174,41 @@ async function startDelayedFollowUp(args: readonly string[]): Promise<void> {
 
     const terminalEvent = await printRuntimeEventStream(events, "Runtime event stream", { showNextAction: false })
 
+    if (terminalEvent?.type === "runtime.failed") {
+        await printFailureRecovery(runId, terminalEvent)
+        return
+    }
+
     if (terminalEvent?.type !== "runtime.suspended" || terminalEvent.suspension.request.name !== "timer") return
 
     const timer = TimerRequestSchema.parse(terminalEvent.suspension.request.payload)
     await waitForTimer(runId, timer.wakeAt)
     await resumeWorkflow([runId])
+}
+
+async function startOrderFulfillment(args: readonly string[]): Promise<void> {
+    const runId = args[0] ?? (isInteractive ? await promptForRunId("fulfillment") : "fulfillment-1001")
+    const packageCount = args[1] ? parsePositiveInteger(args[1], "package-count") : isInteractive ? await promptForPositiveInteger("How many packages are in this shipment?", "2", "Package count") : 2
+
+    printHeading("Starting order fulfillment")
+    printDetails([
+        ["Run ID", runId],
+        ["Customer", "ada@example.com"],
+        ["Packages", String(packageCount)],
+        ["Scenario", "Carrier API fails once"]
+    ])
+
+    const events = runtime.start(orderFulfillmentWorkflow, {
+        runId,
+        input: {
+            orderId: runId,
+            customerEmail: "ada@example.com",
+            packageCount
+        }
+    })
+
+    const terminalEvent = await printRuntimeEventStream(events)
+    if (terminalEvent?.type === "runtime.failed") await printFailureRecovery(runId, terminalEvent)
 }
 
 async function resolveApproval(args: readonly string[], approved: boolean, { showJournal = true }: ResolveApprovalOptions = {}): Promise<void> {
@@ -208,19 +247,26 @@ async function resolveApproval(args: readonly string[], approved: boolean, { sho
         resolution: { approved, decidedBy }
     })
 
-    await printRuntimeEventStream(events, "New runtime event stream")
+    const terminalEvent = await printRuntimeEventStream(events, "New runtime event stream")
+    if (terminalEvent?.type === "runtime.failed") await printFailureRecovery(runId, terminalEvent)
 }
 
 async function resumeWorkflow(args: readonly string[]): Promise<void> {
-    const runId = args[0] ?? (isInteractive ? await promptForRun({ suspendedOnly: true }) : requireArgument(args[0], "run-id"))
+    const runId = args[0] ?? (isInteractive ? await promptForRun({ resumableOnly: true }) : requireArgument(args[0], "run-id"))
     const [registeredWorkflow, suspension, journalEvents] = await Promise.all([resolveWorkflow(runId), runtime.getSuspension({ runId }), journalStore.list({ runId })])
 
     if (!suspension) {
+        const incompleteStep = getIncompleteStep(journalEvents)
+        if (incompleteStep) {
+            await resumeFailedWorkflow(runId, registeredWorkflow, journalEvents, incompleteStep)
+            return
+        }
+
         printHeading("Nothing to resume")
         printDetails([
             ["Run ID", runId],
             ["Workflow", registeredWorkflow.name],
-            ["Status", "No active suspension"]
+            ["Status", journalEvents.some(event => event.type === "run.completed") ? "Already completed" : "No recoverable work"]
         ])
         return
     }
@@ -285,30 +331,40 @@ async function resumeWorkflow(args: readonly string[]): Promise<void> {
         waitId: suspension.waitId
     })
 
-    await printRuntimeEventStream(events, "New runtime event stream")
+    const terminalEvent = await printRuntimeEventStream(events, "New runtime event stream")
+    if (terminalEvent?.type === "runtime.failed") await printFailureRecovery(runId, terminalEvent)
+}
+
+async function resumeFailedWorkflow(runId: string, workflow: WorkflowDefinition, journalEvents: readonly JournalEvent[], incompleteStep: IncompleteStep): Promise<void> {
+    printHeading(incompleteStep.error ? "Recovering failed workflow" : "Recovering interrupted workflow")
+    printDetails([["Run ID", runId], ["Workflow", workflow.name], ["Step", incompleteStep.name], ...(incompleteStep.error ? [["Failure", incompleteStep.error.message] as const] : [])])
+    printJournalHistory(journalEvents, "Persisted journal · before recovery")
+
+    console.log(`\n${color.cyan("──────── Resume requested ────────")}`)
+    printDetails([
+        ["Reusing", formatCompletedStepCount(journalEvents)],
+        ["Retrying", incompleteStep.name]
+    ])
+
+    const terminalEvent = await printRuntimeEventStream(runtime.resume(workflow, { runId }), "Recovery event stream")
+    if (terminalEvent?.type === "runtime.failed") await printFailureRecovery(runId, terminalEvent)
 }
 
 async function showStatus(args: readonly string[], { showNextAction = true }: ShowStatusOptions = {}): Promise<void> {
     const runId = args[0] ?? (isInteractive ? await promptForRun() : requireArgument(args[0], "run-id"))
-    const [run, suspension, events] = await Promise.all([runtime.getRun({ runId }), runtime.getSuspension({ runId }), journalStore.list({ runId })])
-    const status = suspension
-        ? suspension.request.name === "timer"
-            ? "Sleeping"
-            : `Waiting for ${suspension.request.name}`
-        : events.some(event => event.type === "run.completed")
-          ? "Completed"
-          : "Running"
+    const run = await getRunSummary(runId)
 
     printHeading("Run status")
     printDetails([
         ["Run ID", run.runId],
         ["Workflow", run.workflowName],
-        ["Status", status],
+        ["Status", describeRunStatus(run)],
         ["Started", run.startedAt],
-        ["Journal events", String(events.length)]
+        ["Journal events", String(run.eventCount)]
     ])
 
-    if (suspension) printSuspension(runId, suspension, true, showNextAction)
+    if (run.suspension) printSuspension(runId, run.suspension, true, showNextAction)
+    if (run.incompleteStep) printRecovery(runId, run.incompleteStep, showNextAction)
 }
 
 async function showJournal(args: readonly string[]): Promise<void> {
@@ -329,13 +385,13 @@ async function inspectRun(args: readonly string[]): Promise<void> {
 
     if (!isInteractive) return
 
-    const suspension = await runtime.getSuspension({ runId })
+    const run = await getRunSummary(runId)
     const action = unwrapPrompt(
         await p.select<RunAction>({
             message: "What would you like to do with this run?",
             options: [
                 { value: "journal", label: "Inspect journal", hint: "durable event history" },
-                ...(suspension ? [{ value: "resume" as const, label: "Resume run", hint: describeSuspension(suspension) }] : []),
+                ...(isResumableRun(run) ? [{ value: "resume" as const, label: "Resume run", hint: describeResumeAction(run) }] : []),
                 { value: "back", label: "Back" }
             ]
         })
@@ -365,7 +421,7 @@ function showWorkflows(): void {
     for (const workflow of workflowCatalog) {
         console.log(`  ${color.cyan(workflow.name)}`)
         console.log(`    ${workflow.description}`)
-        console.log(color.dim(`    Suspends on ${workflow.suspendsOn}`))
+        console.log(color.dim(`    Demonstrates ${workflow.demonstrates}`))
         console.log(color.dim(`    ${formatCliCommand(workflow.usage)}`))
     }
 }
@@ -384,18 +440,18 @@ async function promptForWorkflow(): Promise<WorkflowName> {
     )
 }
 
-async function promptForRun({ suspendedOnly = false }: PromptForRunOptions = {}): Promise<string> {
+async function promptForRun({ resumableOnly = false }: PromptForRunOptions = {}): Promise<string> {
     requireInteractive("Choose a run by passing its run ID")
     const runs = await listRunSummaries()
-    const choices = suspendedOnly ? runs.filter(run => run.suspension !== undefined) : runs
+    const choices = resumableOnly ? runs.filter(isResumableRun) : runs
 
     if (choices.length === 0) {
-        throw new UsageError(suspendedOnly ? "There are no suspended runs to resume" : "There are no runs to inspect")
+        throw new UsageError(resumableOnly ? "There are no suspended, failed, or interrupted runs to resume" : "There are no runs to inspect")
     }
 
     return unwrapPrompt(
         await p.autocomplete<string>({
-            message: suspendedOnly ? "Which suspended run should resume?" : "Which run should open?",
+            message: resumableOnly ? "Which run should resume?" : "Which run should open?",
             placeholder: "Type a run ID…",
             maxItems: 8,
             options: choices.map(run => ({
@@ -407,7 +463,7 @@ async function promptForRun({ suspendedOnly = false }: PromptForRunOptions = {})
     )
 }
 
-async function promptForRunId(prefix: "order" | "follow-up"): Promise<string> {
+async function promptForRunId(prefix: RunIdPrefix): Promise<string> {
     const runIds = new Set(await listRunIds())
     const suggestion = suggestRunId(prefix, runIds)
     return unwrapPrompt(
@@ -478,19 +534,20 @@ async function promptForApproval(runId: string, suspension: Suspension, { showJo
 
 async function listRunSummaries(): Promise<readonly RunSummary[]> {
     const runIds = await listRunIds()
-    const runs = await Promise.all(
-        runIds.map(async runId => {
-            const [run, suspension, events] = await Promise.all([runtime.getRun({ runId }), runtime.getSuspension({ runId }), journalStore.list({ runId })])
-            return {
-                ...run,
-                suspension,
-                eventCount: events.length,
-                completed: events.some(event => event.type === "run.completed")
-            }
-        })
-    )
+    const runs = await Promise.all(runIds.map(getRunSummary))
 
     return runs.sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+}
+
+async function getRunSummary(runId: string): Promise<RunSummary> {
+    const [run, suspension, events] = await Promise.all([runtime.getRun({ runId }), runtime.getSuspension({ runId }), journalStore.list({ runId })])
+    return {
+        ...run,
+        suspension,
+        incompleteStep: getIncompleteStep(events),
+        eventCount: events.length,
+        completed: events.some(event => event.type === "run.completed")
+    }
 }
 
 async function listRunIds(): Promise<readonly string[]> {
@@ -503,7 +560,7 @@ async function listRunIds(): Promise<readonly string[]> {
     }
 }
 
-function suggestRunId(prefix: "order" | "follow-up", runIds: ReadonlySet<string>): string {
+function suggestRunId(prefix: RunIdPrefix, runIds: ReadonlySet<string>): string {
     for (let index = 1001; ; index++) {
         const candidate = `${prefix}-${index}`
         if (!runIds.has(candidate)) return candidate
@@ -518,6 +575,8 @@ function describeRunStatus(run: RunSummary): string {
     }
     if (run.suspension) return `Waiting for ${run.suspension.request.name}`
     if (run.completed) return "Completed"
+    if (run.incompleteStep?.error) return `Failed · ${run.incompleteStep.name}`
+    if (run.incompleteStep) return `Interrupted · ${run.incompleteStep.name}`
     return "Running"
 }
 
@@ -531,8 +590,64 @@ function describeSuspension(suspension: Suspension): string {
 function paintRunStatus(run: RunSummary): string {
     const status = describeRunStatus(run)
     if (run.completed) return color.green(status)
+    if (run.incompleteStep?.error) return color.red(status)
     if (run.suspension) return color.yellow(status)
     return color.cyan(status)
+}
+
+function isResumableRun(run: RunSummary): boolean {
+    return run.suspension !== undefined || run.incompleteStep !== undefined
+}
+
+function describeResumeAction(run: RunSummary): string {
+    if (run.incompleteStep?.error) return `retry ${run.incompleteStep.name}`
+    if (run.incompleteStep) return `recover ${run.incompleteStep.name}`
+    if (run.suspension) return describeSuspension(run.suspension)
+    return "nothing to resume"
+}
+
+function getIncompleteStep(events: readonly JournalEvent[]): IncompleteStep | undefined {
+    const tail = events.at(-1)
+    if (tail?.type === "step.started") {
+        return {
+            stepId: tail.stepId,
+            name: tail.name
+        }
+    }
+    if (tail?.type === "step.failed") {
+        return {
+            stepId: tail.stepId,
+            name: tail.name,
+            error: tail.error
+        }
+    }
+    return undefined
+}
+
+function formatCompletedStepCount(events: readonly JournalEvent[]): string {
+    const count = events.filter(event => event.type === "step.completed").length
+    return `${count} completed ${count === 1 ? "step" : "steps"}`
+}
+
+function printRecovery(runId: string, incompleteStep: IncompleteStep, showNextAction: boolean): void {
+    printHeading(incompleteStep.error ? color.red("Recovery available") : color.yellow("Resume available"))
+    printDetails([[incompleteStep.error ? "Failed step" : "Interrupted step", incompleteStep.name], ...(incompleteStep.error ? [["Cause", incompleteStep.error.message] as const] : [])])
+
+    if (showNextAction) {
+        console.log("\nNext")
+        console.log(`  ${formatCliCommand(`resume ${runId}`)}`)
+    }
+}
+
+async function printFailureRecovery(runId: string, failure: RuntimeFailedEvent): Promise<void> {
+    const journalEvents = await journalStore.list({ runId })
+    const incompleteStep = getIncompleteStep(journalEvents)
+
+    printHeading(color.red("Run failed · durable state preserved"))
+    printDetails([["Cause", failure.error.message], ["Checkpointed", formatCompletedStepCount(journalEvents)], ...(incompleteStep ? [["Resume from", incompleteStep.name] as const] : [])])
+    console.log("\nNext")
+    console.log(`  ${formatCliCommand(`resume ${runId}`)}`)
+    process.exitCode = 1
 }
 
 async function printRuntimeEventStream(
@@ -548,7 +663,7 @@ async function printRuntimeEventStream(
 
     for await (const event of events) {
         printRuntimeEvent(event, ++index, showNextAction)
-        if (event.type === "runtime.completed" || event.type === "runtime.suspended") terminalEvent = event
+        if (event.type === "runtime.completed" || event.type === "runtime.suspended" || event.type === "runtime.failed") terminalEvent = event
     }
 
     return terminalEvent
@@ -615,6 +730,9 @@ function printRuntimeEvent(event: RuntimeEvent, index: number, showNextAction: b
         case "runtime.suspended":
             printLedgerRow(index, event.type, `waiting for ${event.suspension.request.name}`, color.yellow)
             printSuspension(event.runId, event.suspension, false, showNextAction)
+            return
+        case "runtime.failed":
+            printLedgerRow(index, event.type, `${formatDuration(event.durationMs)} total elapsed · ${event.error.message}`, color.red)
     }
 }
 
@@ -731,23 +849,35 @@ type ResolveApprovalOptions = {
 }
 
 type PromptForRunOptions = {
-    readonly suspendedOnly?: boolean
+    readonly resumableOnly?: boolean
 }
 
 type ShowStatusOptions = {
     readonly showNextAction?: boolean
 }
 
-type WorkflowName = "order-approval" | "delayed-order-follow-up"
+type WorkflowName = "order-approval" | "delayed-order-follow-up" | "order-fulfillment"
+type RunIdPrefix = "order" | "follow-up" | "fulfillment"
 type ControlPlaneAction = "run" | "runs" | "resume" | "workflows" | "exit"
 type RunAction = "journal" | "resume" | "back"
 type ApprovalDecision = "approve" | "reject" | "later"
+type RuntimeFailedEvent = Extract<RuntimeEvent, { readonly type: "runtime.failed" }>
+
+type IncompleteStep = {
+    readonly stepId: string
+    readonly name: string
+    readonly error?: {
+        readonly name: string
+        readonly message: string
+    }
+}
 
 type RunSummary = {
     readonly runId: string
     readonly workflowName: string
     readonly startedAt: string
     readonly suspension: Suspension | undefined
+    readonly incompleteStep: IncompleteStep | undefined
     readonly eventCount: number
     readonly completed: boolean
 }
@@ -809,7 +939,7 @@ Commands
   workflows                        List registered workflows
   runs                             List persisted runs
   inspect [run-id]                 Open a run's status and actions
-  resume [run-id]                  Resume a timer or approval
+  resume [run-id]                  Resume a failure, timer, or approval
   approve <run-id> [reviewer]      Approve a suspended order directly
   reject <run-id> [reviewer]       Reject a suspended order directly
   status [run-id]                  Show run status
@@ -838,9 +968,14 @@ const orderApprovalWorkflow = createOrderApprovalWorkflow({
 const delayedOrderFollowUpWorkflow = createDelayedOrderFollowUpWorkflow({
     resultDirectory: resolve(dataDirectory, "results")
 })
+const orderFulfillmentWorkflow = createOrderFulfillmentWorkflow({
+    recoveryDirectory: resolve(dataDirectory, "recovery"),
+    resultDirectory: resolve(dataDirectory, "results")
+})
 const workflowsByName = new Map<string, WorkflowDefinition>([
     [orderApprovalWorkflow.name, orderApprovalWorkflow],
-    [delayedOrderFollowUpWorkflow.name, delayedOrderFollowUpWorkflow]
+    [delayedOrderFollowUpWorkflow.name, delayedOrderFollowUpWorkflow],
+    [orderFulfillmentWorkflow.name, orderFulfillmentWorkflow]
 ])
 const workflowCatalog = [
     {
@@ -848,7 +983,7 @@ const workflowCatalog = [
         label: "Order approval",
         description: "Prepare an order, then ask a reviewer to approve or reject it",
         promptHint: "waits for a human decision",
-        suspendsOn: "an approval hook",
+        demonstrates: "an approval hook",
         usage: "run order-approval [run-id] [total-cents]"
     },
     {
@@ -856,15 +991,23 @@ const workflowCatalog = [
         label: "Delayed order follow-up",
         description: "Schedule a customer follow-up, sleep, then send it",
         promptHint: "waits on a durable timer",
-        suspendsOn: "a durable timer",
+        demonstrates: "a durable timer",
         usage: "run delayed-order-follow-up [run-id] [delay-ms]"
+    },
+    {
+        name: "order-fulfillment",
+        label: "Order fulfillment",
+        description: "Checkpoint shipment preparation, fail once, then recover with resume",
+        promptHint: "fails once, then resumes",
+        demonstrates: "failure recovery",
+        usage: "run order-fulfillment [run-id] [package-count]"
     }
 ] as const satisfies readonly {
     readonly name: WorkflowName
     readonly label: string
     readonly description: string
     readonly promptHint: string
-    readonly suspendsOn: string
+    readonly demonstrates: string
     readonly usage: string
 }[]
 const TimerRequestSchema = z.object({ wakeAt: z.iso.datetime() }).strict()

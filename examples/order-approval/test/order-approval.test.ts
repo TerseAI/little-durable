@@ -11,6 +11,7 @@ import { z } from "zod"
 
 import { createDelayedOrderFollowUpWorkflow } from "../src/workflows/delayed-order-follow-up.js"
 import { OrderApprovalHook, createOrderApprovalWorkflow } from "../src/workflows/order-approval.js"
+import { createOrderFulfillmentWorkflow } from "../src/workflows/order-fulfillment.js"
 
 test("suspends for approval, resumes, and reuses the completed preparation step", async t => {
     const directory = await mkdtemp(join(tmpdir(), "little-durable-order-approval-"))
@@ -143,6 +144,63 @@ test("resolves a sleeping workflow by name and resumes its timer", async t => {
     })
 })
 
+test("resumes a failed workflow without repeating completed steps", async t => {
+    const directory = await mkdtemp(join(tmpdir(), "little-durable-order-fulfillment-"))
+    t.after(async () => rm(directory, { recursive: true, force: true }))
+
+    const journalStore = new FileJournalStore(join(directory, "journals"))
+    const workflow = createOrderFulfillmentWorkflow({
+        recoveryDirectory: join(directory, "recovery"),
+        resultDirectory: join(directory, "results")
+    })
+    const runId = "fulfillment-1001"
+    const startEvents = []
+
+    for await (const event of new Runtime({ journalStore }).start(workflow, {
+        runId,
+        input: {
+            orderId: runId,
+            customerEmail: "ada@example.com",
+            packageCount: 2
+        }
+    })) {
+        startEvents.push(event)
+    }
+
+    assert.deepEqual(
+        startEvents.map(event => event.type),
+        ["runtime.started", "step.started", "step.completed", "step.started", "step.failed", "runtime.failed"]
+    )
+    assert.equal((await journalStore.listByType({ runId, eventType: "step.completed" })).length, 1)
+
+    const failedStep = startEvents.find(event => event.type === "step.failed")
+    if (failedStep?.type !== "step.failed") throw new Error("Expected the carrier step to fail")
+
+    const resumedEvents = []
+    for await (const event of new Runtime({ journalStore }).resume(workflow, { runId })) resumedEvents.push(event)
+
+    assert.deepEqual(
+        resumedEvents.map(event => event.type),
+        ["runtime.resumed", "step.started", "step.completed", "runtime.completed"]
+    )
+    const retriedStep = resumedEvents.find(event => event.type === "step.started")
+    if (retriedStep?.type !== "step.started") throw new Error("Expected the carrier step to retry")
+    assert.equal(retriedStep.name, "book-carrier-pickup")
+    assert.equal(retriedStep.stepId, failedStep.stepId)
+    assert.equal((await journalStore.listByType({ runId, eventType: "step.completed" })).length, 2)
+
+    const result = FulfillmentResultSchema.parse(JSON.parse(await readFile(join(directory, "results", `${runId}.json`), "utf8")) as unknown)
+    assert.deepEqual(result, {
+        orderId: runId,
+        customerEmail: "ada@example.com",
+        shipmentId: `shipment-${runId}`,
+        packageCount: 2,
+        carrier: "Parcel Express",
+        trackingNumber: `LD-${runId.toUpperCase()}`,
+        status: "pickup-booked"
+    })
+})
+
 const OrderResultSchema = z
     .object({
         orderId: z.string(),
@@ -158,5 +216,17 @@ const DelayedFollowUpResultSchema = z
         orderId: z.string(),
         customerEmail: z.string().email(),
         status: z.literal("follow-up-sent")
+    })
+    .strict()
+
+const FulfillmentResultSchema = z
+    .object({
+        orderId: z.string(),
+        customerEmail: z.string().email(),
+        shipmentId: z.string(),
+        packageCount: z.number().int().positive(),
+        carrier: z.string(),
+        trackingNumber: z.string(),
+        status: z.literal("pickup-booked")
     })
     .strict()
