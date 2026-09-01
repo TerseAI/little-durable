@@ -8,11 +8,11 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![Slack](https://img.shields.io/badge/Slack-Join%20Community-4A154B?logo=slack&logoColor=white)](https://join.slack.com/t/tersecommunity/shared_invite/zt-3y01ap0bn-VvOqz~iJW0LbJ0cTqWuAIQ)
 
-This is an extremely light-weight (33 kB compressed!), runtime and storage agnostic, malleable, Durable Workflow runtime.
+This is an extremely lightweight (33 kB compressed!), runtime and storage agnostic, malleable, Durable Workflow runtime.
 
 Little Durable is BYOCP (bring your own control plane, yes I just made that up), BYOC, and BYOS(torage).
 
-This project was build entirely with the TDD + AI approach. Everything started with tests, and everything is heavily unit tested.
+This project was built entirely with the TDD + AI approach. Everything started with tests, and everything is heavily unit tested.
 
 # Installation
 
@@ -28,7 +28,7 @@ See the [example project](./examples/order-approval) to see a real working imple
 
 I built this because I wanted to run durable functions on Sandboxes. This meant coupling the state of the filesystem with the durable journal.
 
-Existing solutions were super heavy-weight and made assumptions on how the workflows were being hosted. For example, most Durable Workflow systems assume you run everything on a small number of nodes and assume each invocation is non-isolated.
+Existing solutions were super heavyweight and made assumptions on how the workflows were being hosted. For example, most Durable Workflow systems assume you run everything on a small number of nodes and assume each invocation is non-isolated.
 
 This is not the case for running durability in a serverless/cloud function environment.
 
@@ -116,7 +116,7 @@ const suspension = await runtime.getSuspension({ runId: "run-123" })
 // or undefined when no unresolved wait exists
 ```
 
-This is the bare bones of a durable runtime. From here, you can chose where to store the journal by simply implementing an interface and plugging it in. (See fileJournalStore.ts for an example implementation)
+This is the bare bones of a durable runtime. From here, you can choose where to store the journal by simply implementing an interface and plugging it in. (See fileJournalStore.ts for an example implementation)
 
 ```ts
 export interface JournalStore {
@@ -128,12 +128,12 @@ export interface JournalStore {
 }
 ```
 
-It doesn't care where you run it! Run it on a hosted k8s pod, run it on Workers, sandboxes etc..
+It doesn't care where you run it! Run it on a hosted k8s pod, run it on Workers, sandboxes etc...
 
 We make it really easy to plug into an external control plane
 
 ```ts
-// Control plane reaches out via HTTP, Grpc, CLI etc...
+// Control plane reaches out via HTTP, gRPC, CLI etc...
 const input = req.input
 const runId = req.runId
 const workflowName = req.workflowName
@@ -164,7 +164,7 @@ const resumedEvents = runtime.resumeTimer(workflow, {
 for await (const event of resumedEvents) publishRuntimeEvent(event)
 ```
 
-The hook system is also extremely malleable. Very easy to add Slack/email Human in the loop steps and plug into an integration system like Composio.
+The hook system is also extremely malleable. Very easy to add Slack/email human-in-the-loop steps and plug into an integration system like Composio.
 
 ```ts
 const ApprovalHook = defineHook({
@@ -232,13 +232,13 @@ Given how malleable and lightweight this project is, you can use it as a base to
 
 # What do we Support?
 
-Here is a list of the table-stake durability feature that are currently in:
+Here is a list of the table-stakes durability features that are currently in:
 
 - Starting, resuming, retrying a workflow
 - Journaling steps
 - Step() support for defining durable steps
 - Passing in Workflow context and reading it from the workflow
-- Pinning Date() and seeded Random number generate for idempotent replays. (uses runId for seeding)
+- Pinning Date() and a seeded random number generator for idempotent replays. (uses runId for seeding)
 - Creating custom hooks for suspending and resuming with external data
 
 # Documentation
