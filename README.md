@@ -12,7 +12,7 @@ This is an extremely light-weight (33 kB compressed!), runtime and storage agnos
 
 Little Durable is BYOCP (bring your own control plane, yes I just made that up), BYOC, and BYOS(torage).
 
-This project was build entirely with the TDD + AI approach. Everything started with tests, and everything is heavily unit tested.
+This project was built entirely with the TDD + AI approach. Everything started with tests, and everything is heavily unit tested.
 
 # Installation
 
@@ -116,7 +116,7 @@ const suspension = await runtime.getSuspension({ runId: "run-123" })
 // or undefined when no unresolved wait exists
 ```
 
-This is the bare bones of a durable runtime. From here, you can chose where to store the journal by simply implementing an interface and plugging it in. (See fileJournalStore.ts for an example implementation)
+This is the bare bones of a durable runtime. From here, you can choose where to store the journal by simply implementing an interface and plugging it in. (See fileJournalStore.ts for an example implementation)
 
 ```ts
 export interface JournalStore {
@@ -133,7 +133,7 @@ It doesn't care where you run it! Run it on a hosted k8s pod, run it on Workers,
 We make it really easy to plug into an external control plane
 
 ```ts
-// Control plane reaches out via HTTP, Grpc, CLI etc...
+// Control plane reaches out via HTTP, gRPC, CLI etc...
 const input = req.input
 const runId = req.runId
 const workflowName = req.workflowName
@@ -232,13 +232,13 @@ Given how malleable and lightweight this project is, you can use it as a base to
 
 # What do we Support?
 
-Here is a list of the table-stake durability feature that are currently in:
+Here is a list of the table-stakes durability features that are currently in:
 
 - Starting, resuming, retrying a workflow
 - Journaling steps
 - Step() support for defining durable steps
 - Passing in Workflow context and reading it from the workflow
-- Pinning Date() and seeded Random number generate for idempotent replays. (uses runId for seeding)
+- Pinning Date() and seeded random number generation for idempotent replays. (uses runId for seeding)
 - Creating custom hooks for suspending and resuming with external data
 
 # Documentation
