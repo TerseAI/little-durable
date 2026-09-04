@@ -8,6 +8,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![Slack](https://img.shields.io/badge/Slack-Join%20Community-4A154B?logo=slack&logoColor=white)](https://join.slack.com/t/tersecommunity/shared_invite/zt-3y01ap0bn-VvOqz~iJW0LbJ0cTqWuAIQ)
 
+*Lisez ceci en [français](./README-FR.md).*
+
 This is an extremely light-weight (33 kB compressed!), runtime and storage agnostic, malleable, Durable Workflow runtime.
 
 Little Durable is BYOCP (bring your own control plane, yes I just made that up), BYOC, and BYOS(torage).
