@@ -206,34 +206,14 @@ const workflow = defineWorkflow({
 
 ### Automatic step retries
 
-Add `retry` to opt in. Only `classify` is required; defaults are shown below.
+Configure retries for steps in your workflow.
 
-```ts
-await step({
-    name: "call-provider",
-    input,
-    retry: {
-        classify: error => ({ retry: isTransientProviderError(error) }),
-        maxAttempts: 3,
-        initialDelay: "1s",
-        backoffMultiplier: 2,
-        maxDelay: "30s",
-        jitter: true
-    },
-    run: callProvider
-})
-```
-
-Implement `classify` using your provider's error types. It receives the original thrown value and must return synchronously. Return `{ retry: false }` to stop, or `{ retry: true, delay: "30s" }` to override backoff, its cap, and jitter.
-
-`maxAttempts` includes the first execution. Backoff grows by `backoffMultiplier` up to `maxDelay`; jitter selects a delay between zero and that value. Policies and scheduled retries persist across restarts.
-
-- Schedule from `runtime.suspended` and call `resumeTimer()` when due, as with `sleep()`.
-- Rejected or exhausted retries throw the final error. Replayed errors retain only their name and message.
-- Manual `resume()` after terminal failure discards that step's history and resets its budget. Resuming a pending retry preserves its budget and wait.
-- Keep one execution active per run. Retry-enabled steps cannot nest durable operations. Use idempotent API calls: crashes can repeat an attempt before its result is recorded.
-
-Custom journal stores must accept `step.attempt.failed` events and optional retry fields. `popStep()` must also remove the failed step's attempts and associated timer events. Older versions cannot read retry journals.
+- `maxAttempts`: Total attempts including the first execution; defaults to `3`.
+- `initialDelay`: Delay before the first retry, before jitter; defaults to `"1s"`.
+- `backoffMultiplier`: Multiplies the delay for each subsequent retry; defaults to `2`.
+- `maxDelay`: Caps calculated backoff before jitter; defaults to `"30s"`.
+- `jitter`: Randomizes the delay between zero and the calculated backoff; defaults to `true`.
+- `classify`: Required synchronous callback returning `{ retry: false }` to stop, `{ retry: true }` to retry, or `{ retry: true, delay: "30s" }` to override backoff, its cap, and jitter.
 
 ## Pausing a Workflow
 
