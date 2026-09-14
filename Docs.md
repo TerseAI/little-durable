@@ -208,6 +208,22 @@ const workflow = defineWorkflow({
 
 Configure retries for steps in your workflow.
 
+```ts
+await step({
+    name: "call-provider",
+    input,
+    retry: {
+        classify: error => ({ retry: isTransientProviderError(error) }),
+        maxAttempts: 3,
+        initialDelay: "1s",
+        backoffMultiplier: 2,
+        maxDelay: "30s",
+        jitter: true
+    },
+    run: callProvider
+})
+```
+
 - `maxAttempts`: Total attempts including the first execution; defaults to `3`.
 - `initialDelay`: Delay before the first retry, before jitter; defaults to `"1s"`.
 - `backoffMultiplier`: Multiplies the delay for each subsequent retry; defaults to `2`.
