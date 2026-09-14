@@ -13,4 +13,5 @@ export type { GetRunParams, GetSuspensionParams, ResumeEvent, ResumeHookOptions,
 export type { AnyHookDefinition, DefineHookParams, HookDefinition, HookRequest, HookResolution, HookResolutionInput } from "./runtime/defineHook.js"
 export type { DefineWorkflowParams, WorkflowDefinition, WorkflowInput } from "./runtime/defineWorkflow.js"
 export type { StepParams } from "./runtime/step.js"
+export type { RetryPolicy, RetryDecision } from "./runtime/retryPolicy.js"
 export type { ExecutionPhase } from "./runtime/workflowContext.js"

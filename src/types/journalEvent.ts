@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { StepAttemptFailedEventSchema } from "./stepAttemptFailedEvent.js"
 
 import { RunCompletedEventSchema } from "./runCompletedEvent.js"
 import { RunStartedEventSchema } from "./runStartedEvent.js"
@@ -14,6 +15,7 @@ export const JournalEventSchema = z.discriminatedUnion("type", [
     StepStartedEventSchema,
     StepCompletedEventSchema,
     StepFailedEventSchema,
+    StepAttemptFailedEventSchema,
     WaitRequestedEventSchema,
     WaitResolvedEventSchema
 ])

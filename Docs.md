@@ -64,6 +64,7 @@ for await (const event of startEvents) {
         case "step.started":
         case "step.completed":
         case "step.failed":
+        case "step.retry.scheduled":
             console.log(event)
             break
 
@@ -178,6 +179,61 @@ const message = await step({
 ```
 
 The closure here is where you go and do I/O, reach out to slack github etc... run a model whatever you need to do!
+
+### Automatic step retries
+
+Add a `retry` policy to an individual step to retry failures your application recognizes as transient:
+
+```ts
+await step({
+    name: "call-provider",
+    input,
+    retry: {
+        maxAttempts: 3,
+        initialDelay: "1s",
+        backoffMultiplier: 2,
+        maxDelay: "30s",
+        jitter: true,
+        classify: error => {
+            if (isRateLimitError(error)) {
+                return { retry: true, delay: "30s" }
+            }
+
+            return { retry: isTransientProviderError(error) }
+        }
+    },
+    run: callProvider
+})
+```
+
+`callProvider`, `isRateLimitError`, and `isTransientProviderError` are application functions. Use your SDK's error types to implement the classifiers. The runtime does not infer retryability from error messages or HTTP statuses. Steps without a policy execute once before surfacing a failure.
+
+Only `classify` is required inside `retry`. `RetryPolicy` and `RetryDecision` are exported types.
+
+| Option              | Default  | Meaning                                                                                                                         |
+| ------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `classify(error)`   | Required | Synchronously returns `{ retry: false }` or `{ retry: true, delay?: string }`. Receives the original thrown value as `unknown`. |
+| `maxAttempts`       | `3`      | Total attempts, including the first. Must be a positive safe integer; `1` disables additional attempts.                         |
+| `initialDelay`      | `"1s"`   | Positive duration before the first retry, before jitter. Uses the same duration syntax as `sleep()`.                            |
+| `backoffMultiplier` | `2`      | Multiplies the delay for each subsequent retry. Must be finite and at least `1`.                                                |
+| `maxDelay`          | `"30s"`  | Positive cap on calculated backoff, before jitter.                                                                              |
+| `jitter`            | `true`   | Selects a whole-millisecond delay from zero up to the calculated backoff. `false` uses the calculated delay directly.           |
+
+A classifier-provided `delay` overrides the calculated delay, cap, and jitter. It may be zero. Convert a provider's `Retry-After` seconds or HTTP date into a nonnegative duration such as `` `${milliseconds}ms` ``. Apply the provider's documented semantics: a `429` may be transient, while an invalid request generally needs a caller fix. A transient response alone does not establish that repeating a write is safe.
+
+Keep classifiers synchronous and free of side effects. A committed failure record contains the error and retry decision together. Replay reuses that decision without rerunning the classifier or choosing new jitter. The numeric policy is snapshotted when the step first starts; changing it affects new steps or a manually reset budget. Keep the classifier available while a step is pending. Updated classifier code applies to newly observed errors.
+
+**Scheduling and errors.** Backoff persists a timer wait and suspends the runtime. Schedule host wakeups from `runtime.suspended`, exactly as for `sleep()`, and call `resumeTimer()` when due. `step.retry.scheduled` is an observability event emitted before the timer handoff; it is not the host scheduling signal. An early resume cannot skip the wait, and an ordinary `resume()` does not resolve it even after its deadline.
+
+Intermediate failures do not enter workflow `catch` or `finally` blocks. When the classifier rejects an error or attempts run out, the final live attempt throws its original error to the workflow. Replaying a recorded terminal failure after a later workflow suspension reconstructs an `Error` with the persisted name and message; SDK prototypes, custom fields, and object identity are not preserved. Classifier exceptions or malformed decisions terminate with `RetryClassificationError`. Storage failures and replay errors never enter the classifier.
+
+**History and manual recovery.** Each failed attempt has a `step.attempt.failed` journal record. Retried failures emit `step.retry.scheduled` with the failed attempt number, error, wait ID, chosen delay, and wake time. A terminal `step.failed` additionally includes `attempt` and `reason`: `not-retryable`, `attempts-exhausted`, `classifier-failed`, or `invalid-operation`. Successful automatic retries retain their failed-attempt history.
+
+Explicitly calling `resume(workflow, { runId })` after a terminal tail-step failure rewinds that step and starts a fresh budget, preserving the existing code-repair behavior. That destructive rewind removes the old budget's attempts and internal waits. Timer deliveries do not reset exhausted budgets; an old timer ID cannot resolve a replacement budget. While a retry is pending, resumes preserve its budget and schedule.
+
+**Execution contract.** Retry-enabled callbacks perform external work and cannot contain `step()`, `sleep()`, or `waitFor()` calls, nor be nested inside another step. Keep one execution active per run; hosts must serialize concurrent resume requests. Sequential duplicate deliveries are safe. As with any durable step, a crash before recording the callback's result can cause the current attempt to execute again. `maxAttempts` bounds recorded failed attempts, not physical API calls across that crash window. Use provider idempotency keys for writes and account for retries already performed by the SDK.
+
+**Custom journal stores.** The `JournalStore` methods are unchanged, and old journal records remain readable. Adapters must accept the new attempt event and optional retry fields. Their `popStep()` implementation must rewind the terminal step's attempt events and its associated internal timer requests/resolutions as well as its start/failure markers, while preserving earlier completed work. The file store implements this behavior. Older library versions cannot read journals containing the new retry events.
 
 You simply nest it in your workflow:
 

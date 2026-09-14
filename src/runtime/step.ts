@@ -3,11 +3,16 @@ import { createStepEventId } from "../types/stepEventId.js"
 import { StepFailedEvent } from "../types/stepFailedEvent.js"
 import type { StepStartedEvent } from "../types/stepStartedEvent.js"
 
+import { normalizeRetryPolicy } from "./retryPolicy.js"
+import type { RetryPolicy } from "./retryPolicy.js"
+import { runRetryStep } from "./retryStep.js"
 import { systemNow, toIsoString } from "./systemClock.js"
-import { getWorkflowContext, runWithStepContext } from "./workflowContext.js"
+import { assertDurableOperationAllowed, DurableOperationError, getWorkflowContext, runWithStepContext } from "./workflowContext.js"
 
-export async function step<Input extends CanonicalValue, Output extends CanonicalValue>({ name, input, run }: StepParams<Input, Output>): Promise<Output> {
+export async function step<Input extends CanonicalValue, Output extends CanonicalValue>({ name, input, run, retry }: StepParams<Input, Output>): Promise<Output> {
     const context = getWorkflowContext()
+    assertDurableOperationAllowed()
+    if (retry && context.phase === "step") throw new DurableOperationError("Retry-enabled steps cannot be nested inside another step")
 
     const stepId = context.idGenerator.next({ namespace: "step" })
 
@@ -30,6 +35,7 @@ export async function step<Input extends CanonicalValue, Output extends Canonica
             throw new Error(`Step "${stepId}" was previously recorded as "${existingStartedEvent.name}", not "${name}"`)
         }
 
+        context.logicalClock.advanceTo(Date.parse(existingCompletedEvent.completedAt))
         return existingCompletedEvent.output as Output
     }
 
@@ -38,7 +44,11 @@ export async function step<Input extends CanonicalValue, Output extends Canonica
         eventId: createStepEventId({ type: "step.started", stepId })
     })
 
-    if (!existingStartedEvent) {
+    let started: StepStartedEvent
+    if (existingStartedEvent) {
+        if (existingStartedEvent.type !== "step.started" || existingStartedEvent.name !== name) throw new Error(`Step "${stepId}" does not match its recorded start`)
+        started = existingStartedEvent
+    } else {
         const startedAt = systemNow()
         const event: StepStartedEvent = {
             eventId: createStepEventId({ type: "step.started", stepId }),
@@ -46,19 +56,24 @@ export async function step<Input extends CanonicalValue, Output extends Canonica
             stepId,
             name,
             startedAt: toIsoString(startedAt),
-            input
+            input,
+            ...(retry ? { retry: normalizeRetryPolicy(retry) } : {})
         }
 
         await context.journalStore.append({
             runId: context.runId,
             event
         })
+        started = event
     }
+
+    if (started.retry && !retry) throw new Error(`Step "${name}" has a pending retry policy; its classifier must remain available`)
 
     let value: Output
     try {
-        value = await runWithStepContext(() => run(input))
+        value = started.retry && retry ? await runRetryStep({ started, policy: retry, run: () => run(input) }) : await runWithStepContext(() => run(input))
     } catch (error) {
+        if (started.retry) throw error
         const failedAt = systemNow()
         const failedEvent: StepFailedEvent = {
             eventId: createStepEventId({ type: "step.failed", stepId }),
@@ -106,4 +121,5 @@ export type StepParams<Input extends CanonicalValue, Output extends CanonicalVal
     readonly name: string
     readonly input: Input
     readonly run: (input: Input) => Output | Promise<Output>
+    readonly retry?: RetryPolicy
 }

@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { RetryStopReasonSchema } from "./stepAttemptFailedEvent.js"
 
 export const StepFailedEventSchema = z
     .object({
@@ -7,6 +8,8 @@ export const StepFailedEventSchema = z
         stepId: z.string(),
         name: z.string().min(1),
         failedAt: z.iso.datetime(),
+        attempt: z.number().int().positive().optional(),
+        reason: RetryStopReasonSchema.optional(),
         error: z
             .object({
                 name: z.string(),

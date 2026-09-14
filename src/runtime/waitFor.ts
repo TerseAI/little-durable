@@ -8,10 +8,11 @@ import type { WaitResolvedEvent } from "../types/waitResolvedEvent.js"
 
 import type { AnyHookDefinition, HookRequest, HookResolution } from "./defineHook.js"
 import { systemNow, toIsoString } from "./systemClock.js"
-import { getWorkflowContext } from "./workflowContext.js"
+import { assertDurableOperationAllowed, getWorkflowContext } from "./workflowContext.js"
 
 export async function waitFor<Hook extends AnyHookDefinition>(hook: Hook, request: HookRequest<Hook>): Promise<HookResolution<Hook>>
 export async function waitFor(hook: AnyHookDefinition, request: unknown): Promise<unknown> {
+    assertDurableOperationAllowed()
     const parsedRequest = hook.request.parse(request)
     const canonicalRequest = z.json().parse(parsedRequest)
     const resolution = await waitForRequest({
@@ -25,9 +26,12 @@ export async function waitFor(hook: AnyHookDefinition, request: unknown): Promis
     return hook.resolution.parse(resolution)
 }
 
-async function waitForRequest<Request extends HookRequestEnvelope, Payload extends CanonicalPayload = CanonicalPayload>({ request }: WaitForRequestParams<Request>): Promise<Payload> {
+export async function waitForRequest<Request extends HookRequestEnvelope, Payload extends CanonicalPayload = CanonicalPayload>({
+    request,
+    waitId: suppliedWaitId
+}: WaitForRequestParams<Request>): Promise<Payload> {
     const context = getWorkflowContext()
-    const waitId = context.idGenerator.next({ namespace: "wait" })
+    const waitId = suppliedWaitId ?? context.idGenerator.next({ namespace: "wait" })
 
     const resolvedEvent = await context.journalStore.get({
         runId: context.runId,
@@ -76,4 +80,5 @@ type CanonicalPayload = WaitResolvedEvent["payload"]
 
 type WaitForRequestParams<Request extends HookRequestEnvelope> = {
     readonly request: Request
+    readonly waitId?: string
 }
