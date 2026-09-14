@@ -94,20 +94,6 @@ export class RuntimeEvents {
 
 async function projectJournalEvent(event: JournalEvent, context: RuntimeEventContext): Promise<RuntimeEvent | undefined> {
     switch (event.type) {
-        case "step.attempt.failed":
-            if (event.decision.type === "failed") return undefined
-            return RuntimeEventSchema.parse({
-                type: "step.retry.scheduled",
-                runId: context.runId,
-                stepId: event.stepId,
-                name: event.name,
-                attempt: event.attempt,
-                failedAt: event.failedAt,
-                error: event.error,
-                waitId: event.decision.waitId,
-                delayMs: event.decision.delayMs,
-                wakeAt: event.decision.wakeAt
-            })
         case "run.started":
             context.runtimeStartedAt = Date.parse(event.startedAt)
             return RuntimeEventSchema.parse({
@@ -153,8 +139,7 @@ async function projectJournalEvent(event: JournalEvent, context: RuntimeEventCon
                 name: event.name,
                 failedAt: event.failedAt,
                 durationMs: Date.parse(event.failedAt) - (await getStepStartedAt(event.stepId, context)),
-                error: event.error,
-                ...(event.attempt === undefined ? {} : { attempt: event.attempt, reason: event.reason })
+                error: event.error
             })
 
         case "wait.requested": {

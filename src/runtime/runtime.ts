@@ -118,8 +118,8 @@ export class Runtime {
             return
         }
 
-        const incompleteStep = getIncompleteTailStep(await execution.journal.list({ runId }))?.startedEvent
-        if (incompleteStep && !(incompleteStep.retry && event)) {
+        const incompleteStep = getIncompleteTailStep(await execution.journal.list({ runId }))
+        if (incompleteStep) {
             await execution.journal.popStep({
                 runId,
                 stepId: incompleteStep.stepId
@@ -368,10 +368,10 @@ export class Runtime {
 }
 
 function getTimerWakeAt(request: WaitRequestedEvent["request"]): number | undefined {
-    const envelope = HookRequestEnvelopeSchema.parse(request)
-    if (envelope.name !== TimerHook.name) return undefined
-    const timer = TimerHook.request.parse(envelope.payload)
-    const wakeAt = Date.parse(timer.wakeAt)
+    if (typeof request !== "object" || request === null || Array.isArray(request) || request.type !== "timer") return undefined
+    if (typeof request.wakeAt !== "string") throw new Error("Timer wait request has an invalid wakeAt")
+
+    const wakeAt = Date.parse(request.wakeAt)
     if (!Number.isFinite(wakeAt)) throw new Error("Timer wait request has an invalid wakeAt")
 
     return wakeAt

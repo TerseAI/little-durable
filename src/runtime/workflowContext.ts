@@ -27,20 +27,9 @@ export function runWithWorkflowContext<Output>(context: WorkflowContext, run: ()
     return workflowContext().run(context, run)
 }
 
-export function runWithStepContext<Output>(run: () => Output, retryingStep = false): Output {
+export function runWithStepContext<Output>(run: () => Output): Output {
     const context = getWorkflowContext()
-    return workflowContext().run({ ...context, phase: "step", retryingStep }, run)
-}
-
-export function assertDurableOperationAllowed(): void {
-    if (getWorkflowContext().retryingStep) throw new DurableOperationError("Retry-enabled steps cannot contain nested durable operations")
-}
-
-export class DurableOperationError extends Error {
-    constructor(message: string) {
-        super(message)
-        this.name = "DurableOperationError"
-    }
+    return workflowContext().run({ ...context, phase: "step" }, run)
 }
 
 function workflowContext(): AsyncLocalStorage<WorkflowContext> {
@@ -65,7 +54,6 @@ export type WorkflowContext = {
     readonly logicalClock: LogicalClock
     readonly random: () => number
     readonly phase: ExecutionPhase
-    readonly retryingStep?: boolean
 }
 
 type DurableGlobal = typeof globalThis & {

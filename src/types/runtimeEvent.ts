@@ -1,23 +1,8 @@
 import { z } from "zod"
 
 import { RuntimeErrorSchema, SuspensionSchema } from "./runtimeOutcome.js"
-import { RetryStopReasonSchema } from "./stepAttemptFailedEvent.js"
 
 export const RuntimeEventSchema = z.discriminatedUnion("type", [
-    z
-        .object({
-            type: z.literal("step.retry.scheduled"),
-            runId: z.string(),
-            stepId: z.string(),
-            name: z.string(),
-            attempt: z.number().int().positive(),
-            failedAt: z.iso.datetime(),
-            error: RuntimeErrorSchema,
-            waitId: z.string(),
-            delayMs: z.number().nonnegative().finite(),
-            wakeAt: z.iso.datetime()
-        })
-        .strict(),
     z
         .object({
             type: z.literal("runtime.started"),
@@ -81,8 +66,6 @@ export const RuntimeEventSchema = z.discriminatedUnion("type", [
             name: z.string(),
             failedAt: z.iso.datetime(),
             durationMs: z.number().nonnegative(),
-            attempt: z.number().int().positive().optional(),
-            reason: RetryStopReasonSchema.optional(),
             error: z
                 .object({
                     name: z.string(),

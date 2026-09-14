@@ -64,7 +64,6 @@ for await (const event of startEvents) {
         case "step.started":
         case "step.completed":
         case "step.failed":
-        case "step.retry.scheduled":
             console.log(event)
             break
 
@@ -206,30 +205,30 @@ const workflow = defineWorkflow({
 
 ### Automatic step retries
 
-Configure retries for steps in your workflow.
+Steps run once by default. Opt into retries for errors you know are transient.
 
 ```ts
 await step({
     name: "call-provider",
     input,
     retry: {
-        classify: error => ({ retry: isTransientProviderError(error) }),
+        shouldRetry: error => isTransientProviderError(error),
         maxAttempts: 3,
         initialDelay: "1s",
         backoffMultiplier: 2,
-        maxDelay: "30s",
-        jitter: true
+        maxDelay: "30s"
     },
     run: callProvider
 })
 ```
 
+- `shouldRetry`: Required. Returns `true` to retry the failed attempt.
 - `maxAttempts`: Total attempts including the first execution; defaults to `3`.
-- `initialDelay`: Delay before the first retry, before jitter; defaults to `"1s"`.
+- `initialDelay`: Delay before the first retry; defaults to `"1s"`.
 - `backoffMultiplier`: Multiplies the delay for each subsequent retry; defaults to `2`.
-- `maxDelay`: Caps calculated backoff before jitter; defaults to `"30s"`.
-- `jitter`: Randomizes the delay between zero and the calculated backoff; defaults to `true`.
-- `classify`: Required synchronous callback returning `{ retry: false }` to stop, `{ retry: true }` to retry, or `{ retry: true, delay: "30s" }` to override backoff, its cap, and jitter.
+- `maxDelay`: Caps the delay between attempts; defaults to `"30s"`.
+
+Each attempt is journaled as its own step and each delay is a `sleep()`, so a retry suspends the run on a timer exactly like `sleep()` does and is resumed with `resumeTimer()`.
 
 ## Pausing a Workflow
 

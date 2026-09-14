@@ -1,5 +1,4 @@
 import { z } from "zod"
-import { RetryPolicySnapshotSchema } from "./retryPolicySnapshot.js"
 
 export const StepStartedEventSchema = z
     .object({
@@ -8,8 +7,7 @@ export const StepStartedEventSchema = z
         stepId: z.string(),
         name: z.string().min(1),
         startedAt: z.iso.datetime(),
-        input: z.json(),
-        retry: RetryPolicySnapshotSchema.optional()
+        input: z.json()
     })
     .strict()
 
