@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { getRewindableStepTail } from "../runtime/journalTail.js"
+import { getIncompleteTailStep } from "../runtime/journalTail.js"
 
 import { JournalEventSchema } from "../types/journalEvent.js"
 import type { JournalEvent } from "../types/journalEvent.js"
@@ -50,12 +50,15 @@ export class FileJournalStore implements JournalStore {
         const runDirectory = this.runDirectoryFor(runId)
         const filenames = (await readJournalDirectory(runDirectory)).sort()
         const events: JournalEvent[] = []
-        for (const filename of filenames) {
-            const source = await readFile(join(runDirectory, filename), "utf8")
-            events.push(JournalEventSchema.parse(JSON.parse(source) as unknown))
+        for (let index = filenames.length - 1; index >= 0; index--) {
+            const source = await readFile(join(runDirectory, filenames[index]), "utf8")
+            const event = JournalEventSchema.parse(JSON.parse(source) as unknown)
+            events.push(event)
+            if (event.type === "step.started") break
         }
-        const tail = getRewindableStepTail(events, stepId)
-        for (const filename of filenames.slice(-tail.length).reverse()) await unlink(join(runDirectory, filename))
+        const tail = getIncompleteTailStep(events.reverse())
+        if (tail?.startedEvent.stepId !== stepId) throw new Error(`Step "${stepId}" is not an incomplete step at the journal tail`)
+        for (const filename of filenames.slice(-tail.eventCount).reverse()) await unlink(join(runDirectory, filename))
     }
 
     private runDirectoryFor(runId: string): string {

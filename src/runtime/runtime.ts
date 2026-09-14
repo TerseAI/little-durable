@@ -118,7 +118,7 @@ export class Runtime {
             return
         }
 
-        const incompleteStep = getIncompleteTailStep(await execution.journal.list({ runId }))
+        const incompleteStep = getIncompleteTailStep(await execution.journal.list({ runId }))?.startedEvent
         if (incompleteStep && !(incompleteStep.retry && event)) {
             await execution.journal.popStep({
                 runId,
