@@ -11,7 +11,6 @@ import { systemNow, toIsoString } from "./systemClock.js"
 import { getWorkflowContext, runWithStepContext } from "./workflowContext.js"
 
 export async function step<Input extends CanonicalValue, Output extends CanonicalValue>({ name, input, run, retry }: StepParams<Input, Output>): Promise<Output> {
-    // Every attempt is an ordinary step and every delay is an ordinary sleep, so replay and crash recovery need nothing new.
     for (let attempt = 1; ; attempt++) {
         const shouldRetry = (error: unknown): boolean => retry !== undefined && attempt < (retry.maxAttempts ?? 3) && retry.shouldRetry(error)
         const result = await runAttempt({ name, input, run, shouldRetry })
