@@ -105,21 +105,7 @@ for await (const event of events) {
 }
 ```
 
-Steps can opt into durable retries with an application-defined classifier:
-
-```ts
-await step({
-    name: "call-provider",
-    input,
-    retry: {
-        maxAttempts: 3,
-        classify: error => ({ retry: isTransientProviderError(error) })
-    },
-    run: callProvider
-})
-```
-
-Retries use exponential backoff with jitter and the same host-driven timer integration as `sleep()`. Attempt counts and selected delays survive restarts. Callers can customize the policy and return `{ retry: true, delay: "30s" }` to honor a provider's retry delay. See [automatic step retries](./Docs.md#automatic-step-retries) for the full API and recovery behavior.
+Steps support [opt-in retries](./Docs.md#automatic-step-retries) for caller-defined transient errors.
 
 We also have some convenience methods to see the state of a run.
 
