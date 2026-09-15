@@ -7,6 +7,7 @@ export const StepFailedEventSchema = z
         stepId: z.string(),
         name: z.string().min(1),
         failedAt: z.iso.datetime(),
+        retry: z.boolean().optional(),
         error: z
             .object({
                 name: z.string(),
