@@ -105,6 +105,8 @@ for await (const event of events) {
 }
 ```
 
+Steps support [opt-in retries](./Docs.md#automatic-step-retries) for caller-defined transient errors.
+
 We also have some convenience methods to see the state of a run.
 
 ```ts

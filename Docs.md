@@ -203,6 +203,33 @@ const workflow = defineWorkflow({
 })
 ```
 
+### Automatic step retries
+
+Steps run once by default. Opt into retries for errors you know are transient.
+
+```ts
+await step({
+    name: "call-provider",
+    input,
+    retry: {
+        shouldRetry: error => isTransientProviderError(error),
+        maxAttempts: 3,
+        initialDelay: "1s",
+        backoffMultiplier: 2,
+        maxDelay: "30s"
+    },
+    run: callProvider
+})
+```
+
+- `shouldRetry`: Required. Returns `true` to retry the failed attempt.
+- `maxAttempts`: Total attempts including the first execution; defaults to `3`.
+- `initialDelay`: Delay before the first retry; defaults to `"1s"`.
+- `backoffMultiplier`: Multiplies the delay for each subsequent retry; defaults to `2`.
+- `maxDelay`: Caps the delay between attempts; defaults to `"30s"`.
+
+Each attempt is journaled as its own step and each delay is a `sleep()`, so a retry suspends the run on a timer exactly like `sleep()` does and is resumed with `resumeTimer()`.
+
 ## Pausing a Workflow
 
 Pausing a workflow is done with `sleep()`.
